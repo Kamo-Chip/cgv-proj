@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>First-Person Maze — Three.js (Vanilla)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Three.js via import map -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+        }
+      }
+    </script>
+
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #0b0d12;
+        color: #e6f0ff;
+        font-family: ui-sans-serif, system-ui;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+      }
+
+      .hud {
+        position: fixed;
+        left: 12px;
+        top: 12px;
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 10px 12px;
+        border-radius: 10px;
+        font-size: 14px;
+        line-height: 1.4;
+        user-select: none;
+        backdrop-filter: blur(4px);
+        z-index: 5;
+        min-width: 280px;
+      }
+      .hud kbd {
+        background: #11161f;
+        border: 1px solid #324255;
+        border-bottom-width: 2px;
+        padding: 1px 6px;
+        border-radius: 6px;
+        font-size: 12px;
+        margin: 0 2px;
+        box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+      }
+      .health-wrap {
+        margin-top: 8px;
+      }
+      .healthbar {
+        height: 12px;
+        width: 100%;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+      .healthfill {
+        height: 100%;
+        width: 100%;
+        background: linear-gradient(90deg, #ff4d4d, #ffaf4d);
+        transform-origin: left center;
+      }
+      .healthtext {
+        font-size: 12px;
+        opacity: 0.85;
+        margin-top: 4px;
+      }
+
+      .center {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        pointer-events: none;
+        z-index: 3;
+      }
+      .crosshair {
+        width: 12px;
+        height: 12px;
+        position: relative;
+        opacity: 0.7;
+        filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.2));
+      }
+      .crosshair::before,
+      .crosshair::after {
+        content: "";
+        position: absolute;
+        background: #e6f0ff;
+      }
+      .crosshair::before {
+        left: 50%;
+        top: 0;
+        width: 2px;
+        height: 100%;
+        transform: translateX(-50%);
+      }
+      .crosshair::after {
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 2px;
+        transform: translateY(-50%);
+      }
+
+      .overlay {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: rgba(0, 0, 0, 0.55);
+        backdrop-filter: blur(3px);
+        z-index: 10;
+      }
+      .overlay.hidden {
+        display: none;
+      }
+      .panel {
+        padding: 18px 20px;
+        border-radius: 12px;
+        background: rgba(8, 12, 18, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        text-align: center;
+        max-width: 520px;
+      }
+      button {
+        cursor: pointer;
+        margin-top: 12px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 1px solid #2c3a4d;
+        background: #142131;
+        color: #e6f0ff;
+        font-weight: 600;
+      }
+      .credit {
+        position: fixed;
+        right: 12px;
+        bottom: 12px;
+        opacity: 0.7;
+        font-size: 12px;
+        z-index: 5;
+      }
+
+      .minimap-wrap {
+        position: fixed;
+        left: 12px;
+        bottom: 12px;
+        z-index: 6;
+        padding: 8px;
+        border-radius: 10px;
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(4px);
+      }
+      #minimap {
+        display: block;
+        image-rendering: pixelated;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div class="hud">
+      Click the screen to look around • Move: <kbd>W</kbd><kbd>A</kbd
+      ><kbd>S</kbd><kbd>D</kbd> or arrows • <b>Jump: <kbd>Space</kbd></b
+      ><br />
+      <b>Attack: Left Click</b> • Reset: <kbd>R</kbd> • Goal: glowing cube
+      <div class="health-wrap">
+        <div class="healthbar">
+          <div id="healthfill" class="healthfill"></div>
+        </div>
+        <div id="healthtext" class="healthtext">Health: 100 / 100</div>
+      </div>
+    </div>
+
+    <div class="center"><div class="crosshair"></div></div>
+
+    <div class="minimap-wrap">
+      <canvas id="minimap"></canvas>
+    </div>
+
+    <div id="start" class="overlay">
+      <div class="panel">
+        <h2 style="margin: 0.2rem 0 0.4rem">First-Person Maze</h2>
+        <div>Reach the glowing goal cube without touching the walls.</div>
+        <button id="playBtn">Click to Play</button>
+      </div>
+    </div>
+
+    <div id="win" class="overlay hidden">
+      <div class="panel">
+        <h2 style="margin: 0.2rem 0 0.6rem">You made it! 🎉</h2>
+        <div>
+          Press <b>R</b> to play again, or <b>Esc</b> to unlock the mouse.
+        </div>
+      </div>
+    </div>
+
+    <div id="lose" class="overlay hidden">
+      <div class="panel">
+        <h2 style="margin: 0.2rem 0 0.6rem">You were caught! 💀</h2>
+        <div>Press <b>R</b> to try again.</div>
+      </div>
+    </div>
+
+    <div class="credit">Three.js • first-person maze demo</div>
+
+    <script type="module">
+      import * as THREE from "three";
+
+      // -------- Basic scene/renderer/camera --------
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0b0d12);
+      scene.fog = new THREE.Fog(0x0b0d12, 25, 120);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.shadowMap.enabled = true;
+      document.getElementById("app").appendChild(renderer.domElement);
+
+      const camera = new THREE.PerspectiveCamera(
+        70,
+        innerWidth / innerHeight,
+        0.1,
+        200
+      );
+      const playerBaseHeight = 0.8;
+      camera.position.set(1, playerBaseHeight, 1);
+
+      // Lighting
+      const hemi = new THREE.HemisphereLight(0xbfd8ff, 0x18222e, 0.9);
+      scene.add(hemi);
+      const dir = new THREE.DirectionalLight(0xffffff, 0.6);
+      dir.position.set(8, 15, 6);
+      dir.castShadow = true;
+      dir.shadow.mapSize.set(1024, 1024);
+      dir.shadow.camera.far = 80;
+      scene.add(dir);
+
+      // Ground
+      const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(300, 300),
+        new THREE.MeshStandardMaterial({ color: 0x1b2431, roughness: 0.95 })
+      );
+      ground.rotation.x = -Math.PI / 2;
+      ground.receiveShadow = true;
+      scene.add(ground);
+
+      // Grid (optional visual)
+      const grid = new THREE.GridHelper(300, 150, 0x3b8cff, 0x314055);
+      grid.material.opacity = 0.2;
+      grid.material.transparent = true;
+      scene.add(grid);
+
+      // -------- Maze generation --------
+      const MAZE_W = 21,
+        MAZE_H = 21,
+        CELL = 2,
+        WALL_H = 1.6;
+      const maze = Array.from({ length: MAZE_H }, () => Array(MAZE_W).fill(0));
+      function genMaze() {
+        for (let y = 0; y < MAZE_H; y++)
+          for (let x = 0; x < MAZE_W; x++) maze[y][x] = 0;
+        function carve(x, y) {
+          maze[y][x] = 1;
+          const d = [
+            [2, 0],
+            [-2, 0],
+            [0, 2],
+            [0, -2],
+          ].sort(() => Math.random() - 0.5);
+          for (const [dx, dy] of d) {
+            const nx = x + dx,
+              ny = y + dy;
+            if (
+              ny > 0 &&
+              ny < MAZE_H - 1 &&
+              nx > 0 &&
+              nx < MAZE_W - 1 &&
+              maze[ny][nx] === 0
+            ) {
+              maze[y + dy / 2][x + dx / 2] = 1;
+              carve(nx, ny);
+            }
+          }
+        }
+        carve(1, 1);
+        maze[1][1] = 1;
+        maze[MAZE_H - 2][MAZE_W - 2] = 1;
+      }
+      genMaze();
+
+      // Walls
+      const wallMaterial = new THREE.MeshStandardMaterial({
+        color: 0x2a3a4d,
+        roughness: 0.6,
+        metalness: 0.05,
+      });
+      const wallGeo = new THREE.BoxGeometry(CELL, WALL_H, CELL);
+      const walls = [];
+      const wallGroup = new THREE.Group();
+      for (let y = 0; y < MAZE_H; y++) {
+        for (let x = 0; x < MAZE_W; x++) {
+          if (maze[y][x] === 0) {
+            const mesh = new THREE.Mesh(wallGeo, wallMaterial);
+            mesh.castShadow = mesh.receiveShadow = true;
+            const wx = (x - Math.floor(MAZE_W / 2)) * CELL;
+            const wz = (y - Math.floor(MAZE_H / 2)) * CELL;
+            mesh.position.set(wx, WALL_H / 2, wz);
+            wallGroup.add(mesh);
+            const half = CELL / 2;
+            walls.push({
+              min: { x: wx - half, z: wz - half },
+              max: { x: wx + half, z: wz + half },
+            });
+          }
+        }
+      }
+      scene.add(wallGroup);
+
+      // Goal
+      const goalWorld = gridToWorld(MAZE_W - 2, MAZE_H - 2);
+      const goal = new THREE.Mesh(
+        new THREE.BoxGeometry(0.9, 0.9, 0.9),
+        new THREE.MeshStandardMaterial({
+          color: 0x46ff7a,
+          emissive: 0x1bff66,
+          emissiveIntensity: 0.35,
+        })
+      );
+      goal.castShadow = true;
+      goal.position.set(goalWorld.x, 0.45, goalWorld.z);
+      scene.add(goal);
+
+      // Helpers
+      function gridToWorld(gx, gy) {
+        return {
+          x: (gx - Math.floor(MAZE_W / 2)) * CELL,
+          z: (gy - Math.floor(MAZE_H / 2)) * CELL,
+        };
+      }
+      function worldToGrid(wx, wz) {
+        return {
+          gx: Math.round(wx / CELL + Math.floor(MAZE_W / 2)),
+          gy: Math.round(wz / CELL + Math.floor(MAZE_H / 2)),
+        };
+      }
+
+      // -------- Pointer lock + look --------
+      const startOverlay = document.getElementById("start");
+      const winOverlay = document.getElementById("win");
+      const loseOverlay = document.getElementById("lose");
+      const playBtn = document.getElementById("playBtn");
+
+      const look = { yaw: 0, pitch: 0, sensitivity: 0.0025 };
+      function lockPointer() {
+        renderer.domElement.requestPointerLock();
+      }
+      playBtn.addEventListener("click", () => {
+        startOverlay.classList.add("hidden");
+        lockPointer();
+      });
+      document.addEventListener("pointerlockchange", () => {
+        if (
+          document.pointerLockElement !== renderer.domElement &&
+          !won &&
+          !lost
+        )
+          startOverlay.classList.remove("hidden");
+      });
+      renderer.domElement.addEventListener("click", () => {
+        if (document.pointerLockElement !== renderer.domElement) lockPointer();
+      });
+
+      addEventListener("mousemove", (e) => {
+        if (document.pointerLockElement !== renderer.domElement) return;
+        look.yaw -= e.movementX * look.sensitivity;
+        look.pitch -= e.movementY * look.sensitivity;
+        const maxPitch = Math.PI / 2 - 0.001;
+        look.pitch = Math.max(-maxPitch, Math.min(maxPitch, look.pitch));
+        applyLook();
+      });
+      function applyLook() {
+        camera.quaternion.setFromEuler(
+          new THREE.Euler(look.pitch, look.yaw, 0, "YXZ")
+        );
+      }
+      applyLook();
+
+      // -------- Movement, jump + collision --------
+      const keys = new Set();
+      addEventListener("keydown", (e) => {
+        const k = e.key.toLowerCase();
+        if (
+          [
+            "w",
+            "a",
+            "s",
+            "d",
+            "arrowup",
+            "arrowdown",
+            "arrowleft",
+            "arrowright",
+            "r",
+          ].includes(k) ||
+          e.code === "Space"
+        )
+          e.preventDefault();
+        keys.add(k);
+        if (k === "r") resetGame();
+        if (e.code === "Space") tryJump();
+      });
+      addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+
+      const velocity = new THREE.Vector2(0, 0); // xz
+      const accel = 30,
+        maxSpeed = 5.0,
+        damping = 12,
+        playerRadius = 0.35;
+
+      // Jump
+      const GRAVITY = -20,
+        JUMP_VELOCITY = 6;
+      let yVel = 0,
+        yOffset = 0,
+        grounded = true;
+      function tryJump() {
+        if (!lost && grounded) {
+          yVel = JUMP_VELOCITY;
+          grounded = false;
+        }
+      }
+
+      // Player state
+      let won = false,
+        lost = false;
+      let health = 100;
+      const healthFill = document.getElementById("healthfill");
+      const healthText = document.getElementById("healthtext");
+      function setHealth(h) {
+        health = Math.max(0, Math.min(100, h));
+        healthFill.style.transform = `scaleX(${health / 100})`;
+        healthText.textContent = `Health: ${Math.round(health)} / 100`;
+        if (!lost && health <= 0) {
+          lost = true;
+          loseOverlay.classList.remove("hidden");
+        }
+      }
+
+      function resetPlayerPositionAndView() {
+        const start = gridToWorld(1, 1);
+        camera.position.set(start.x, playerBaseHeight, start.z);
+        velocity.set(0, 0);
+        yVel = 0;
+        yOffset = 0;
+        grounded = true;
+        look.yaw =
+          Math.atan2(
+            camera.position.x - goal.position.x,
+            camera.position.z - goal.position.z
+          ) + Math.PI;
+        look.pitch = 0;
+        applyLook();
+      }
+
+      function resetGame() {
+        won = false;
+        lost = false;
+        winOverlay.classList.add("hidden");
+        loseOverlay.classList.add("hidden");
+        setHealth(100);
+        resetPlayerPositionAndView();
+        resetEnemies();
+        if (document.pointerLockElement !== renderer.domElement)
+          startOverlay.classList.remove("hidden");
+      }
+
+      function moveAndCollide(dt) {
+        if (lost) return;
+        let ax = 0,
+          az = 0;
+        if (keys.has("w") || keys.has("arrowup")) az += 1;
+        if (keys.has("s") || keys.has("arrowdown")) az -= 1;
+        if (keys.has("a") || keys.has("arrowleft")) ax += 1;
+        if (keys.has("d") || keys.has("arrowright")) ax -= 1;
+        if (ax || az) {
+          const len = Math.hypot(ax, az);
+          ax /= len;
+          az /= len;
+        }
+
+        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(
+          camera.quaternion
+        );
+        fwd.y = 0;
+        fwd.normalize();
+        const right = new THREE.Vector3()
+          .crossVectors(fwd, new THREE.Vector3(0, 1, 0))
+          .negate();
+
+        velocity.x += (right.x * ax + fwd.x * az) * accel * dt;
+        velocity.y += (right.z * ax + fwd.z * az) * accel * dt;
+
+        const sp = Math.hypot(velocity.x, velocity.y);
+        if (sp > 0) {
+          const damp = Math.max(0, 1 - damping * dt);
+          velocity.x *= damp;
+          velocity.y *= damp;
+        }
+        const sp2 = Math.hypot(velocity.x, velocity.y);
+        if (sp2 > maxSpeed) {
+          velocity.x *= maxSpeed / sp2;
+          velocity.y *= maxSpeed / sp2;
+        }
+
+        let nx = camera.position.x + velocity.x * dt;
+        let nz = camera.position.z + velocity.y * dt;
+
+        for (const w of walls) {
+          const cx = Math.max(w.min.x, Math.min(nx, w.max.x));
+          const cz = Math.max(w.min.z, Math.min(nz, w.max.z));
+          const dx = nx - cx,
+            dz = nz - cz,
+            d2 = dx * dx + dz * dz;
+          if (d2 < playerRadius * playerRadius) {
+            const d = Math.sqrt(d2) || 1e-5,
+              overlap = playerRadius - d;
+            nx += (dx / d) * overlap;
+            nz += (dz / d) * overlap;
+          }
+        }
+
+        // Vertical
+        yVel += GRAVITY * dt;
+        yOffset += yVel * dt;
+        if (yOffset <= 0) {
+          yOffset = 0;
+          yVel = 0;
+          grounded = true;
+        } else grounded = false;
+
+        camera.position.set(nx, playerBaseHeight + yOffset, nz);
+
+        if (!won && camera.position.distanceTo(goal.position) < 0.7) {
+          won = true;
+          winOverlay.classList.remove("hidden");
+        }
+      }
+
+      // -------- Enemies (BFS pathfinding + persistent spawning) --------
+      const ENEMY_SPEED = 2.6;
+      const ENEMY_RADIUS = 0.4;
+      const DMG_PER_SEC = 10;
+      const PATH_REPLAN_TIME = 0.2;
+
+      // Adjustable spawn knobs
+      const TARGET_ENEMIES = 8; // <— keep this many on map
+      const SPAWN_MIN_DIST = CELL * 6; // min world distance from player to spawn
+      const ENEMY_SEPARATION = CELL * 2.5; // min distance between enemies when spawning
+      const MAX_SPAWN_TRIES = 300;
+
+      // Attacks
+      const HIT_DAMAGE = 10,
+        FIRE_COOLDOWN = 0.25;
+      let fireTimer = 0;
+      const raycaster = new THREE.Raycaster();
+      const ndcCenter = new THREE.Vector2(0, 0);
+
+      const enemies = []; // {mesh,gx,gy,path,targetIndex,vx,vz,hp,hitFlash,dead}
+      const enemyGeo = new THREE.SphereGeometry(0.35, 16, 16);
+      const enemyMat = new THREE.MeshStandardMaterial({
+        color: 0xff5252,
+        emissive: 0x550000,
+        emissiveIntensity: 0.2,
+        roughness: 0.6,
+      });
+
+      // Choose a passage cell far from player & not too close to other enemies
+      function chooseSpawnCell() {
+        const options = [];
+        const px = camera.position.x,
+          pz = camera.position.z;
+
+        for (let y = 1; y < MAZE_H - 1; y++)
+          for (let x = 1; x < MAZE_W - 1; x++) {
+            if (maze[y][x] !== 1) continue; // passage only
+            const w = gridToWorld(x, y);
+            // Far enough from player?
+            const dPlayer = Math.hypot(w.x - px, w.z - pz);
+            if (dPlayer < SPAWN_MIN_DIST) continue;
+            // Not too close to existing enemies
+            let ok = true;
+            for (const e of enemies) {
+              const de = Math.hypot(
+                w.x - e.mesh.position.x,
+                w.z - e.mesh.position.z
+              );
+              if (de < ENEMY_SEPARATION) {
+                ok = false;
+                break;
+              }
+            }
+            if (ok) options.push({ x, y });
+          }
+
+        if (options.length === 0) return null;
+        return options[Math.floor(Math.random() * options.length)];
+      }
+
+      function spawnEnemy() {
+        let cell = null;
+        for (let i = 0; i < MAX_SPAWN_TRIES && !cell; i++)
+          cell = chooseSpawnCell();
+        if (!cell) return false; // give up this frame
+
+        const w = gridToWorld(cell.x, cell.y);
+        const mesh = new THREE.Mesh(enemyGeo, enemyMat.clone());
+        mesh.castShadow = true;
+        mesh.position.set(w.x, 0.35, w.z);
+        scene.add(mesh);
+        enemies.push({
+          mesh,
+          gx: cell.x,
+          gy: cell.y,
+          path: [],
+          targetIndex: 0,
+          vx: 0,
+          vz: 0,
+          hp: 100,
+          hitFlash: 0,
+          dead: false,
+          lastWaypointDist: Infinity,
+          noProgressTime: 0,
+        });
+
+        return true;
+      }
+
+      function resetEnemies() {
+        for (const e of enemies) scene.remove(e.mesh);
+        enemies.length = 0;
+
+        // Fill up to target
+        for (let i = 0; i < TARGET_ENEMIES; i++) spawnEnemy();
+        timeSinceReplan = PATH_REPLAN_TIME;
+      }
+
+      function ensureEnemyQuota() {
+        // Top up if any died or were removed
+        while (enemies.length < TARGET_ENEMIES) {
+          if (!spawnEnemy()) break; // if couldn't find a spot this frame, try next frame
+        }
+      }
+
+      function bfsPath(sx, sy, tx, ty) {
+        if (sx === tx && sy === ty) return [{ gx: sx, gy: sy }];
+        const q = [[sx, sy]];
+        const visited = Array.from({ length: MAZE_H }, () =>
+          Array(MAZE_W).fill(false)
+        );
+        const prev = Array.from({ length: MAZE_H }, () =>
+          Array(MAZE_W).fill(null)
+        );
+        visited[sy][sx] = true;
+        const dirs = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ];
+        while (q.length) {
+          const [x, y] = q.shift();
+          for (const [dx, dy] of dirs) {
+            const nx = x + dx,
+              ny = y + dy;
+            if (
+              ny >= 0 &&
+              ny < MAZE_H &&
+              nx >= 0 &&
+              nx < MAZE_W &&
+              !visited[ny][nx] &&
+              maze[ny][nx] === 1
+            ) {
+              visited[ny][nx] = true;
+              prev[ny][nx] = [x, y];
+              if (nx === tx && ny === ty) {
+                const path = [{ gx: tx, gy: ty }];
+                let cx = tx,
+                  cy = ty;
+                while (prev[cy][cx]) {
+                  const [px, py] = prev[cy][cx];
+                  path.push({ gx: px, gy: py });
+                  cx = px;
+                  cy = py;
+                }
+                path.reverse();
+                return path;
+              }
+              q.push([nx, ny]);
+            }
+          }
+        }
+        return null;
+      }
+
+      let timeSinceReplan = 0;
+
+      // --- Enemy–enemy separation (circle vs circle on XZ) ---
+      const SEPARATION_ITERATIONS = 2; // a couple passes is enough for small counts
+      const PUSH_FACTOR = 1.0; // 1.0 = resolve full overlap
+
+      function resolveEnemyOverlaps() {
+        const minDist = ENEMY_RADIUS * 2;
+        const minDist2 = minDist * minDist;
+
+        for (let iter = 0; iter < SEPARATION_ITERATIONS; iter++) {
+          // pairwise push-apart
+          for (let i = 0; i < enemies.length; i++) {
+            const ei = enemies[i];
+            if (ei.dead) continue;
+            const pi = ei.mesh.position;
+
+            for (let j = i + 1; j < enemies.length; j++) {
+              const ej = enemies[j];
+              if (ej.dead) continue;
+              const pj = ej.mesh.position;
+
+              let dx = pj.x - pi.x;
+              let dz = pj.z - pi.z;
+              let d2 = dx * dx + dz * dz;
+
+              if (d2 < minDist2) {
+                if (d2 < 1e-8) {
+                  // exactly overlapping -> random tiny nudge
+                  const a = Math.random() * Math.PI * 2;
+                  dx = Math.cos(a) * 0.001;
+                  dz = Math.sin(a) * 0.001;
+                  d2 = dx * dx + dz * dz;
+                }
+                const d = Math.sqrt(d2);
+                const overlap = (minDist - d) * 0.5 * PUSH_FACTOR;
+                const ux = dx / d,
+                  uz = dz / d;
+
+                // push each in opposite directions
+                pi.x -= ux * overlap;
+                pi.z -= uz * overlap;
+                pj.x += ux * overlap;
+                pj.z += uz * overlap;
+              }
+            }
+          }
+
+          // after we move them, keep each enemy out of walls again
+          for (const e of enemies) {
+            if (e.dead) continue;
+            let nx = e.mesh.position.x;
+            let nz = e.mesh.position.z;
+
+            // circle (enemy) vs wall AABB
+            for (const w of walls) {
+              const cx = Math.max(w.min.x, Math.min(nx, w.max.x));
+              const cz = Math.max(w.min.z, Math.min(nz, w.max.z));
+              const ddx = nx - cx,
+                ddz = nz - cz;
+              const d2 = ddx * ddx + ddz * ddz;
+              if (d2 < ENEMY_RADIUS * ENEMY_RADIUS) {
+                const d = Math.sqrt(d2) || 1e-5;
+                const overlap = ENEMY_RADIUS - d;
+                nx += (ddx / d) * overlap;
+                nz += (ddz / d) * overlap;
+              }
+            }
+
+            e.mesh.position.x = nx;
+            e.mesh.position.z = nz;
+          }
+        }
+      }
+
+      // Force a replan for a single enemy from its *current* position
+      function forceReplanForEnemy(e, playerGrid) {
+        const here = worldToGrid(e.mesh.position.x, e.mesh.position.z);
+        e.gx = here.gx;
+        e.gy = here.gy;
+        const path = bfsPath(e.gx, e.gy, playerGrid.gx, playerGrid.gy);
+        if (path && path.length > 1) {
+          e.path = path;
+          e.targetIndex = 1;
+        } else {
+          e.path = [];
+          e.targetIndex = 0;
+        }
+        e.noProgressTime = 0;
+        e.lastWaypointDist = Infinity;
+
+        // tiny random nudge so symmetric pushes don't deadlock
+        const a = Math.random() * Math.PI * 2;
+        e.mesh.position.x += Math.cos(a) * 0.02;
+        e.mesh.position.z += Math.sin(a) * 0.02;
+      }
+
+      function updateEnemies(dt) {
+        if (lost) return;
+        const pg = worldToGrid(camera.position.x, camera.position.z);
+
+        // Periodic replan
+        timeSinceReplan += dt;
+        if (timeSinceReplan >= PATH_REPLAN_TIME) {
+          for (const e of enemies) {
+            if (e.dead) continue;
+            const path = bfsPath(e.gx, e.gy, pg.gx, pg.gy);
+            if (path && path.length > 1) {
+              e.path = path;
+              e.targetIndex = 1;
+            }
+          }
+          timeSinceReplan = 0;
+        }
+
+        // Move each enemy towards its current waypoint (with wall collision)
+        for (const e of enemies) {
+          if (e.dead) continue;
+
+          // decay hit flash
+          e.hitFlash = Math.max(0, e.hitFlash - dt);
+          e.mesh.material.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
+
+          // Continuously sync grid from actual position (prevents drift/stuck)
+          {
+            const here = worldToGrid(e.mesh.position.x, e.mesh.position.z);
+            e.gx = here.gx;
+            e.gy = here.gy;
+          }
+
+          if (!e.path || e.path.length === 0) continue;
+
+          const targetCell = e.path[Math.min(e.targetIndex, e.path.length - 1)];
+          const tw = gridToWorld(targetCell.gx, targetCell.gy);
+          let dx = tw.x - e.mesh.position.x;
+          let dz = tw.z - e.mesh.position.z;
+          const dist = Math.hypot(dx, dz);
+
+          // --- STUCK DETECTION: no progress toward waypoint
+          if (dist > e.lastWaypointDist - 0.001) {
+            e.noProgressTime += dt;
+          } else {
+            e.noProgressTime = 0;
+          }
+          e.lastWaypointDist = dist;
+
+          if (e.noProgressTime > 0.6) {
+            // Been ~0.6s without getting closer -> force replan from *current* spot
+            forceReplanForEnemy(e, pg);
+            continue;
+          }
+
+          if (dist < 0.02) {
+            // reached waypoint center
+            e.mesh.position.set(tw.x, e.mesh.position.y, tw.z);
+            e.gx = targetCell.gx;
+            e.gy = targetCell.gy;
+            e.lastWaypointDist = Infinity;
+            e.noProgressTime = 0;
+            if (e.targetIndex < e.path.length - 1) e.targetIndex++;
+            continue;
+          }
+
+          // Step toward waypoint
+          dx /= dist || 1;
+          dz /= dist || 1;
+          let nx = e.mesh.position.x + dx * ENEMY_SPEED * dt;
+          let nz = e.mesh.position.z + dz * ENEMY_SPEED * dt;
+
+          // Enemy vs wall (circle vs AABB)
+          for (const w of walls) {
+            const cx = Math.max(w.min.x, Math.min(nx, w.max.x));
+            const cz = Math.max(w.min.z, Math.min(nz, w.max.z));
+            const ddx = nx - cx,
+              ddz = nz - cz,
+              d2 = ddx * ddx + ddz * ddz;
+            if (d2 < ENEMY_RADIUS * ENEMY_RADIUS) {
+              const d = Math.sqrt(d2) || 1e-5;
+              const overlap = ENEMY_RADIUS - d;
+              nx += (ddx / d) * overlap;
+              nz += (ddz / d) * overlap;
+            }
+          }
+
+          e.mesh.position.x = nx;
+          e.mesh.position.z = nz;
+        }
+
+        // Resolve enemy–enemy overlaps (if you added the helper earlier)
+        if (typeof resolveEnemyOverlaps === "function") {
+          resolveEnemyOverlaps();
+        }
+
+        // Touch damage AFTER separation
+        for (const e of enemies) {
+          if (e.dead) continue;
+          const pdx = camera.position.x - e.mesh.position.x;
+          const pdz = camera.position.z - e.mesh.position.z;
+          if (Math.hypot(pdx, pdz) < playerRadius + ENEMY_RADIUS) {
+            setHealth(health - DMG_PER_SEC * dt);
+          }
+        }
+
+        // Remove dead, then top up spawns
+        for (let i = enemies.length - 1; i >= 0; i--) {
+          if (enemies[i].dead) {
+            scene.remove(enemies[i].mesh);
+            enemies.splice(i, 1);
+          }
+        }
+        ensureEnemyQuota();
+      }
+
+      // Attacking
+      function performAttack() {
+        if (lost || won) return;
+        if (fireTimer > 0) return;
+        fireTimer = FIRE_COOLDOWN;
+
+        raycaster.setFromCamera(ndcCenter, camera);
+        raycaster.far = 5; // Distance of hit
+
+        const enemyMeshes = enemies.filter((e) => !e.dead).map((e) => e.mesh);
+        const hitsEnemies = raycaster.intersectObjects(enemyMeshes, false);
+        const hitsWalls = raycaster.intersectObjects([wallGroup], true);
+        const wallDist = hitsWalls.length ? hitsWalls[0].distance : Infinity;
+        const hit = hitsEnemies.find((h) => h.distance < wallDist);
+        if (!hit) return;
+
+        const enemy = enemies.find((e) => e.mesh === hit.object);
+        if (!enemy) return;
+        enemy.hp -= HIT_DAMAGE;
+        enemy.hitFlash = 0.2;
+        enemy.mesh.scale.setScalar(1.12);
+        setTimeout(() => enemy.mesh.scale.setScalar(1), 80);
+        if (enemy.hp <= 0 && !enemy.dead) enemy.dead = true;
+      }
+
+      addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        if (document.pointerLockElement !== renderer.domElement) return;
+        performAttack();
+      });
+
+      // -------- Mini-map --------
+      const mmCanvas = document.getElementById("minimap");
+      const TILE = 8,
+        PAD = 2;
+      mmCanvas.width = MAZE_W * TILE + PAD * 2;
+      mmCanvas.height = MAZE_H * TILE + PAD * 2;
+      const mm = mmCanvas.getContext("2d");
+
+      function drawMinimap() {
+        mm.clearRect(0, 0, mmCanvas.width, mmCanvas.height);
+        mm.fillStyle = "rgba(10,14,20,0.85)";
+        mm.fillRect(0, 0, mmCanvas.width, mmCanvas.height);
+
+        for (let y = 0; y < MAZE_H; y++)
+          for (let x = 0; x < MAZE_W; x++) {
+            if (maze[y][x] === 0) {
+              mm.fillStyle = "#1e2a3a";
+              mm.fillRect(PAD + x * TILE, PAD + y * TILE, TILE, TILE);
+            }
+          }
+
+        mm.fillStyle = "#46ff7a";
+        const goalG = worldToGrid(goal.position.x, goal.position.z);
+        mm.fillRect(
+          PAD + Math.floor(goalG.gx) * TILE + 2,
+          PAD + Math.floor(goalG.gy) * TILE + 2,
+          TILE - 4,
+          TILE - 4
+        );
+
+        const g = worldToGrid(camera.position.x, camera.position.z);
+        const px = PAD + (g.gx + 0.5) * TILE;
+        const py = PAD + (g.gy + 0.5) * TILE;
+        mm.fillStyle = "#e6f0ff";
+        mm.beginPath();
+        mm.arc(px, py, Math.max(2, TILE * 0.25), 0, Math.PI * 2);
+        mm.fill();
+
+        const dirLen = TILE * 0.7;
+        const dx = -Math.sin(look.yaw) * dirLen;
+        const dy = -Math.cos(look.yaw) * dirLen;
+        mm.strokeStyle = "#9ad1ff";
+        mm.lineWidth = 2;
+        mm.beginPath();
+        mm.moveTo(px, py);
+        mm.lineTo(px + dx, py + dy);
+        mm.stroke();
+
+        for (const e of enemies) {
+          const eg = worldToGrid(e.mesh.position.x, e.mesh.position.z);
+          const alpha = e.dead ? 0.0 : Math.max(0.25, e.hp / 100);
+          mm.fillStyle = `rgba(255,82,82,${alpha})`;
+          mm.fillRect(
+            PAD + eg.gx * TILE + 3,
+            PAD + eg.gy * TILE + 3,
+            TILE - 6,
+            TILE - 6
+          );
+        }
+
+        mm.strokeStyle = "rgba(255,255,255,0.15)";
+        mm.lineWidth = 1;
+        mm.strokeRect(0.5, 0.5, mmCanvas.width - 1, mmCanvas.height - 1);
+      }
+
+      // Start game
+      resetGame();
+
+      // -------- Animate --------
+      let last = performance.now();
+      function tick(now = performance.now()) {
+        const dt = Math.min((now - last) / 1000, 0.05);
+        last = now;
+
+        if (fireTimer > 0) fireTimer = Math.max(0, fireTimer - dt);
+
+        if (
+          document.pointerLockElement === renderer.domElement &&
+          !won &&
+          !lost
+        ) {
+          moveAndCollide(dt);
+          updateEnemies(dt);
+        }
+
+        goal.material.emissiveIntensity = 0.4 + 0.2 * Math.sin(now * 0.003);
+        drawMinimap();
+
+        renderer.render(scene, camera);
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+
+      // Resize
+      addEventListener("resize", () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+      });
+    </script>
+  </body>
+</html>
