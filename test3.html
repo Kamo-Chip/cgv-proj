@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>First-Person Maze — Three.js (Vanilla)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Three.js via import map -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+        }
+      }
+    </script>
+
+    <style>
+      html, body {
+        margin: 0; height: 100%; overflow: hidden;
+        background: #0b0d12; color: #e6f0ff; font-family: ui-sans-serif, system-ui;
+      }
+      #app { position: fixed; inset: 0; }
+
+      .hud {
+        position: fixed; left: 12px; top: 12px;
+        background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.08);
+        padding: 10px 12px; border-radius: 10px; font-size: 14px; line-height: 1.4;
+        user-select: none; backdrop-filter: blur(4px);
+        z-index: 5;
+      }
+      .hud kbd {
+        background: #11161f; border: 1px solid #324255; border-bottom-width: 2px;
+        padding: 1px 6px; border-radius: 6px; font-size: 12px; margin: 0 2px;
+        box-shadow: inset 0 -1px 0 rgba(255,255,255,.05);
+      }
+
+      .center { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 3; }
+      .crosshair {
+        width: 12px; height: 12px; position: relative; opacity: .7;
+        filter: drop-shadow(0 0 2px rgba(255,255,255,.2));
+      }
+      .crosshair::before, .crosshair::after { content:""; position:absolute; background:#e6f0ff; }
+      .crosshair::before { left:50%; top:0; width:2px; height:100%; transform: translateX(-50%); }
+      .crosshair::after  { top:50%; left:0; width:100%; height:2px; transform: translateY(-50%); }
+
+      .overlay {
+        position: fixed; inset: 0; display: grid; place-items: center;
+        background: rgba(0,0,0,.55); backdrop-filter: blur(3px); z-index: 10;
+      }
+      .overlay.hidden { display: none; }
+      .panel {
+        padding: 18px 20px; border-radius: 12px; background: rgba(8,12,18,.9);
+        border: 1px solid rgba(255,255,255,.1); text-align: center; max-width: 520px;
+      }
+      button {
+        cursor: pointer; margin-top: 12px; padding: 10px 14px; border-radius: 10px;
+        border: 1px solid #2c3a4d; background: #142131; color: #e6f0ff; font-weight: 600;
+      }
+      .credit { position: fixed; right: 12px; bottom: 12px; opacity: 0.7; font-size: 12px; z-index: 5; }
+
+      /* --- Mini-map HUD --- */
+      .minimap-wrap {
+        position: fixed; left: 12px; bottom: 12px; z-index: 6;
+        padding: 8px; border-radius: 10px; background: rgba(0,0,0,.45);
+        border: 1px solid rgba(255,255,255,.08); backdrop-filter: blur(4px);
+      }
+      #minimap { display: block; image-rendering: pixelated; }
+      .mini-label {
+        position: absolute; left: 14px; bottom: calc(12px + 8px); /* sits above wrap */
+        font-size: 11px; opacity: .75; transform: translateY(-100%);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div class="hud">
+      Click the screen to look around • Move: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows<br/>
+      Reset: <kbd>R</kbd> • Goal: glowing cube
+    </div>
+
+    <div class="center"><div class="crosshair"></div></div>
+
+    <!-- Mini-map HUD -->
+    <div class="minimap-wrap">
+      <canvas id="minimap"></canvas>
+    </div>
+
+    <div id="start" class="overlay">
+      <div class="panel">
+        <h2 style="margin:.2rem 0 .4rem;">First-Person Maze</h2>
+        <div>Reach the glowing goal cube without touching the walls.</div>
+        <button id="playBtn">Click to Play</button>
+      </div>
+    </div>
+
+    <div id="win" class="overlay hidden">
+      <div class="panel">
+        <h2 style="margin:.2rem 0 .6rem;">You made it! 🎉</h2>
+        <div>Press <b>R</b> to play again, or <b>Esc</b> to unlock the mouse.</div>
+      </div>
+    </div>
+
+    <div class="credit">Three.js • first-person maze demo</div>
+
+    <script type="module">
+      import * as THREE from "three";
+
+      // -------- Basic scene/renderer/camera --------
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0b0d12);
+      scene.fog = new THREE.Fog(0x0b0d12, 25, 120);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.shadowMap.enabled = true;
+      document.getElementById("app").appendChild(renderer.domElement);
+
+      const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 200);
+      const playerHeight = 0.8;
+      camera.position.set(1, playerHeight, 1);
+
+      // Lighting
+      const hemi = new THREE.HemisphereLight(0xbfd8ff, 0x18222e, 0.9);
+      scene.add(hemi);
+      const dir = new THREE.DirectionalLight(0xffffff, 0.6);
+      dir.position.set(8, 15, 6);
+      dir.castShadow = true;
+      dir.shadow.mapSize.set(1024, 1024);
+      dir.shadow.camera.far = 80;
+      scene.add(dir);
+
+      // Ground
+      const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(300, 300),
+        new THREE.MeshStandardMaterial({ color: 0x1b2431, roughness: 0.95 })
+      );
+      ground.rotation.x = -Math.PI / 2;
+      ground.receiveShadow = true;
+      scene.add(ground);
+
+      // Grid for orientation
+      const grid = new THREE.GridHelper(300, 150, 0x3b8cff, 0x314055);
+      grid.material.opacity = 0.2;
+      grid.material.transparent = true;
+      scene.add(grid);
+
+      // -------- Maze generation (DFS backtracker) --------
+      const MAZE_W = 21; // odd
+      const MAZE_H = 21; // odd
+      const CELL   = 2;  // world units per cell
+      const WALL_H = 1.6;
+
+      // 0 = wall, 1 = passage
+      const maze = Array.from({ length: MAZE_H }, () => Array(MAZE_W).fill(0));
+
+      function genMaze() {
+        for (let y = 0; y < MAZE_H; y++) for (let x = 0; x < MAZE_W; x++) maze[y][x] = 0;
+        function carve(x, y) {
+          maze[y][x] = 1;
+          const dirs = [[2,0],[-2,0],[0,2],[0,-2]].sort(()=>Math.random()-0.5);
+          for (const [dx,dy] of dirs) {
+            const nx = x + dx, ny = y + dy;
+            if (ny > 0 && ny < MAZE_H-1 && nx > 0 && nx < MAZE_W-1 && maze[ny][nx] === 0) {
+              maze[y + dy/2][x + dx/2] = 1;
+              carve(nx, ny);
+            }
+          }
+        }
+        carve(1,1);
+        maze[1][1] = 1;
+        maze[MAZE_H-2][MAZE_W-2] = 1;
+      }
+      genMaze();
+
+      // Build walls
+      const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x2a3a4d, roughness: 0.6, metalness: 0.05 });
+      const wallGeo = new THREE.BoxGeometry(CELL, WALL_H, CELL);
+      const walls = []; // {min:{x,z}, max:{x,z}}
+      const wallGroup = new THREE.Group();
+
+      for (let y = 0; y < MAZE_H; y++) {
+        for (let x = 0; x < MAZE_W; x++) {
+          if (maze[y][x] === 0) {
+            const mesh = new THREE.Mesh(wallGeo, wallMaterial);
+            mesh.castShadow = mesh.receiveShadow = true;
+            const wx = (x - Math.floor(MAZE_W/2)) * CELL;
+            const wz = (y - Math.floor(MAZE_H/2)) * CELL;
+            mesh.position.set(wx, WALL_H/2, wz);
+            wallGroup.add(mesh);
+            const half = CELL/2;
+            walls.push({ min:{x: wx - half, z: wz - half}, max:{x: wx + half, z: wz + half} });
+          }
+        }
+      }
+      scene.add(wallGroup);
+
+      // Goal
+      const goalWorld = gridToWorld(MAZE_W-2, MAZE_H-2);
+      const goal = new THREE.Mesh(
+        new THREE.BoxGeometry(0.9, 0.9, 0.9),
+        new THREE.MeshStandardMaterial({ color: 0x46ff7a, emissive: 0x1bff66, emissiveIntensity: 0.35 })
+      );
+      goal.castShadow = true;
+      goal.position.set(goalWorld.x, 0.45, goalWorld.z);
+      scene.add(goal);
+
+      // Helpers: grid/world conversions
+      function gridToWorld(gx, gy) {
+        return {
+          x: (gx - Math.floor(MAZE_W/2)) * CELL,
+          z: (gy - Math.floor(MAZE_H/2)) * CELL
+        };
+      }
+      function worldToGrid(wx, wz) {
+        return {
+          gx: (wx / CELL) + Math.floor(MAZE_W/2),
+          gy: (wz / CELL) + Math.floor(MAZE_H/2)
+        };
+      }
+
+      // -------- Pointer lock + look --------
+      const startOverlay = document.getElementById("start");
+      const winOverlay = document.getElementById("win");
+      const playBtn = document.getElementById("playBtn");
+
+      const look = { yaw: 0, pitch: 0, sensitivity: 0.0025 };
+      function lockPointer(){ renderer.domElement.requestPointerLock(); }
+      playBtn.addEventListener("click", () => { startOverlay.classList.add("hidden"); lockPointer(); });
+      document.addEventListener("pointerlockchange", () => {
+        if (document.pointerLockElement !== renderer.domElement && !won) startOverlay.classList.remove("hidden");
+      });
+      renderer.domElement.addEventListener("click", () => {
+        if (document.pointerLockElement !== renderer.domElement) lockPointer();
+      });
+
+      addEventListener("mousemove", (e) => {
+        if (document.pointerLockElement !== renderer.domElement) return;
+        look.yaw   -= e.movementX * look.sensitivity;
+        look.pitch -= e.movementY * look.sensitivity;
+        const maxPitch = Math.PI/2 - 0.001;
+        look.pitch = Math.max(-maxPitch, Math.min(maxPitch, look.pitch));
+        applyLook();
+      });
+      function applyLook() {
+        camera.quaternion.setFromEuler(new THREE.Euler(look.pitch, look.yaw, 0, "YXZ"));
+      }
+      applyLook();
+
+      // -------- Movement + collision --------
+      const keys = new Set();
+      addEventListener("keydown", (e) => {
+        const k = e.key.toLowerCase();
+        if (["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright","r"].includes(k)) e.preventDefault();
+        keys.add(k);
+        if (k === "r") resetPlayer();
+      });
+      addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+
+      const velocity = new THREE.Vector2(0, 0); // xz
+      const accel = 30, maxSpeed = 5.0, damping = 12, playerRadius = 0.35;
+
+      let won = false;
+      function resetPlayer() {
+        won = false;
+        winOverlay.classList.add("hidden");
+        const start = gridToWorld(1,1);
+        camera.position.set(start.x, playerHeight, start.z);
+        velocity.set(0,0);
+        look.yaw = Math.atan2(camera.position.x - goal.position.x, camera.position.z - goal.position.z) + Math.PI;
+        look.pitch = 0;
+        applyLook();
+        if (document.pointerLockElement !== renderer.domElement) startOverlay.classList.remove("hidden");
+      }
+      resetPlayer();
+
+      function moveAndCollide(dt) {
+        // Input (forward/back along camera, left/right strafing)
+        let ax = 0, az = 0;
+        if (keys.has("w") || keys.has("arrowup"))    az += 1;
+        if (keys.has("s") || keys.has("arrowdown"))  az -= 1;
+        if (keys.has("a") || keys.has("arrowleft"))  ax += 1;
+        if (keys.has("d") || keys.has("arrowright")) ax -= 1;
+
+        if (ax !== 0 || az !== 0) {
+          const len = Math.hypot(ax, az); ax/=len; az/=len;
+        }
+
+        const fwd = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion); fwd.y = 0; fwd.normalize();
+        const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0,1,0)).negate();
+
+        velocity.x += (right.x * ax + fwd.x * az) * accel * dt;
+        velocity.y += (right.z * ax + fwd.z * az) * accel * dt;
+
+        const sp = Math.hypot(velocity.x, velocity.y);
+        if (sp > 0) {
+          const damp = Math.max(0, 1 - damping * dt);
+          velocity.x *= damp; velocity.y *= damp;
+        }
+        const sp2 = Math.hypot(velocity.x, velocity.y);
+        if (sp2 > maxSpeed) { velocity.x *= maxSpeed/sp2; velocity.y *= maxSpeed/sp2; }
+
+        let nx = camera.position.x + velocity.x * dt;
+        let nz = camera.position.z + velocity.y * dt;
+
+        // circle (player) vs AABB (walls)
+        for (const w of walls) {
+          const cx = Math.max(w.min.x, Math.min(nx, w.max.x));
+          const cz = Math.max(w.min.z, Math.min(nz, w.max.z));
+          const dx = nx - cx, dz = nz - cz;
+          const d2 = dx*dx + dz*dz;
+          if (d2 < playerRadius*playerRadius) {
+            const d = Math.sqrt(d2) || 0.00001;
+            const overlap = playerRadius - d;
+            nx += (dx/d) * overlap; nz += (dz/d) * overlap;
+          }
+        }
+
+        camera.position.set(nx, playerHeight, nz);
+
+        // Win?
+        if (!won && camera.position.distanceTo(goal.position) < 0.7) {
+          won = true; winOverlay.classList.remove("hidden");
+        }
+      }
+
+      // -------- Mini-map --------
+      const mmCanvas = document.getElementById('minimap');
+      const TILE = 8; // pixels per maze cell in the mini-map
+      const PAD  = 2; // inner padding in pixels
+      mmCanvas.width  = MAZE_W * TILE + PAD*2;
+      mmCanvas.height = MAZE_H * TILE + PAD*2;
+      const mm = mmCanvas.getContext('2d');
+
+      function drawMinimap() {
+        // Background
+        mm.clearRect(0,0,mmCanvas.width, mmCanvas.height);
+        mm.fillStyle = 'rgba(10,14,20,0.85)';
+        mm.fillRect(0,0,mmCanvas.width, mmCanvas.height);
+
+        // Cells
+        for (let y = 0; y < MAZE_H; y++) {
+          for (let x = 0; x < MAZE_W; x++) {
+            if (maze[y][x] === 0) {
+              mm.fillStyle = '#1e2a3a'; // wall
+              mm.fillRect(PAD + x*TILE, PAD + y*TILE, TILE, TILE);
+            } else {
+              // passage (optional faint)
+              // mm.fillStyle = 'rgba(255,255,255,0.03)';
+              // mm.fillRect(PAD + x*TILE, PAD + y*TILE, TILE, TILE);
+            }
+          }
+        }
+
+        // Goal
+        mm.fillStyle = '#46ff7a';
+        const goalG = worldToGrid(goal.position.x, goal.position.z);
+        mm.fillRect(PAD + Math.floor(goalG.gx)*TILE + 2, PAD + Math.floor(goalG.gy)*TILE + 2, TILE-4, TILE-4);
+
+        // Player (dot + facing)
+        const g = worldToGrid(camera.position.x, camera.position.z);
+        const px = PAD + (g.gx + 0.5) * TILE;
+        const py = PAD + (g.gy + 0.5) * TILE;
+
+        // player dot
+        mm.fillStyle = '#e6f0ff';
+        mm.beginPath(); mm.arc(px, py, Math.max(2, TILE*0.25), 0, Math.PI*2); mm.fill();
+
+        // facing direction line (using yaw)
+        const dirLen = TILE * 0.7;
+        const dx = -Math.sin(look.yaw) * dirLen; // yaw: left-handed screen vs world tweak
+        const dy = -Math.cos(look.yaw) * dirLen;
+        mm.strokeStyle = '#9ad1ff';
+        mm.lineWidth = 2;
+        mm.beginPath(); mm.moveTo(px, py); mm.lineTo(px + dx, py + dy); mm.stroke();
+
+        // border
+        mm.strokeStyle = 'rgba(255,255,255,0.15)';
+        mm.lineWidth = 1;
+        mm.strokeRect(0.5, 0.5, mmCanvas.width-1, mmCanvas.height-1);
+      }
+
+      // -------- Animate --------
+      let last = performance.now();
+      function tick(now = performance.now()) {
+        const dt = Math.min((now - last) / 1000, 0.05);
+        last = now;
+
+        if (document.pointerLockElement === renderer.domElement && !won) {
+          moveAndCollide(dt);
+        }
+
+        // subtle pulsing goal
+        goal.material.emissiveIntensity = 0.4 + 0.2 * Math.sin(now * 0.003);
+
+        // draw mini-map
+        drawMinimap();
+
+        renderer.render(scene, camera);
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+
+      // Resize
+      addEventListener("resize", () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Super Simple 3D Block — Three.js</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Import map for Three.js modules -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0d12;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji","Segoe UI Emoji";
+      color: #e6f0ff;
+    }
+    #app { position: fixed; inset: 0; }
+    .hud {
+      position: fixed; left: 12px; top: 12px;
+      background: rgba(0,0,0,0.45);
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 10px 12px; border-radius: 10px;
+      font-size: 14px; line-height: 1.4;
+      user-select: none;
+      backdrop-filter: blur(4px);
+    }
+    .hud kbd {
+      background: #11161f; border: 1px solid #324255; border-bottom-width: 2px;
+      padding: 1px 6px; border-radius: 6px; font-size: 12px; margin: 0 2px;
+      box-shadow: inset 0 -1px 0 rgba(255,255,255,0.05);
+    }
+    .credit {
+      position: fixed; right: 12px; bottom: 12px; opacity: 0.7; font-size: 12px;
+    }
+    a { color: #9ad1ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="hud">
+    Move: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys<br />
+    Reset position: <kbd>R</kbd>
+  </div>
+  <div class="credit">Three.js • super-simple demo</div>
+
+  <script type="module">
+    import * as THREE from 'three';
+
+    // --- Basic scene setup ---
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0b0d12);
+    scene.fog = new THREE.Fog(0x0b0d12, 20, 80);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    document.getElementById('app').appendChild(renderer.domElement);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
+    camera.position.set(10, 8, 12);
+    camera.lookAt(0, 0, 0);
+
+    // --- Ground plane ---
+    const groundGeo = new THREE.PlaneGeometry(200, 200);
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x1b2431, roughness: 0.95, metalness: 0.0 });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // Grid helper to show movement
+    const grid = new THREE.GridHelper(200, 200, 0x3b8cff, 0x314055);
+    grid.material.opacity = 0.25;
+    grid.material.transparent = true;
+    scene.add(grid);
+
+    // --- Lights ---
+    const hemi = new THREE.HemisphereLight(0xbfd8ff, 0x18222e, 0.8);
+    scene.add(hemi);
+
+    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+    dir.position.set(10, 12, 6);
+    dir.castShadow = true;
+    dir.shadow.mapSize.set(1024, 1024);
+    dir.shadow.camera.near = 0.5;
+    dir.shadow.camera.far = 50;
+    dir.shadow.camera.left = -15;
+    dir.shadow.camera.right = 15;
+    dir.shadow.camera.top = 15;
+    dir.shadow.camera.bottom = -15;
+    scene.add(dir);
+
+    // --- The player block ---
+    const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+    const boxMat = new THREE.MeshStandardMaterial({ color: 0x46ff7a });
+    const player = new THREE.Mesh(boxGeo, boxMat);
+    player.castShadow = true;
+    player.position.set(0, 0.5, 0);
+    scene.add(player);
+
+    // A subtle shadow "contact" (fake AO) under the cube for depth
+    const shadowGeo = new THREE.CircleGeometry(0.6, 24);
+    const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 });
+    const shadowBlob = new THREE.Mesh(shadowGeo, shadowMat);
+    shadowBlob.rotation.x = -Math.PI / 2;
+    shadowBlob.position.y = 0.01;
+    scene.add(shadowBlob);
+
+    // --- Input handling ---
+    const keys = new Set();
+    window.addEventListener('keydown', (e) => {
+      const k = e.key.toLowerCase();
+      if (['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright','r'].includes(k)) {
+        e.preventDefault();
+      }
+      keys.add(k);
+      if (k === 'r') resetPlayer();
+    });
+    window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+
+    // --- Simple movement model (velocity + damping) ---
+    const velocity = new THREE.Vector2(0, 0); // xz-plane: (vx, vz)
+    const accel = 18;      // acceleration units / s^2
+    const maxSpeed = 8;    // units / s
+    const damping = 8;     // velocity decay per second
+
+    function resetPlayer() {
+      player.position.set(0, 0.5, 0);
+      velocity.set(0, 0);
+    }
+
+    // --- Camera follow (simple, smooth) ---
+    const camOffset = new THREE.Vector3(10, 8, 12);
+    const camTarget = new THREE.Vector3();
+
+    // --- Animation loop ---
+    let last = performance.now();
+    function tick(now = performance.now()) {
+      const dt = Math.min((now - last) / 1000, 0.05); // clamp dt to avoid spikes
+      last = now;
+
+      // Input vector (forward/back on -z/+z, left/right on -x/+x)
+      let ax = 0, az = 0;
+      if (keys.has('w') || keys.has('arrowup'))    az -= 1;
+      if (keys.has('s') || keys.has('arrowdown'))  az += 1;
+      if (keys.has('a') || keys.has('arrowleft'))  ax -= 1;
+      if (keys.has('d') || keys.has('arrowright')) ax += 1;
+
+      // Normalize input (so diagonals aren’t faster)
+      if (ax !== 0 || az !== 0) {
+        const len = Math.hypot(ax, az);
+        ax /= len; az /= len;
+      }
+
+      // Integrate acceleration
+      velocity.x += ax * accel * dt;
+      velocity.y += az * accel * dt;
+
+      // Apply damping (friction)
+      const speed = Math.hypot(velocity.x, velocity.y);
+      if (speed > 0) {
+        const damp = Math.max(0, 1 - damping * dt);
+        velocity.x *= damp;
+        velocity.y *= damp;
+      }
+
+      // Clamp max speed
+      const newSpeed = Math.hypot(velocity.x, velocity.y);
+      if (newSpeed > maxSpeed) {
+        velocity.x *= maxSpeed / newSpeed;
+        velocity.y *= maxSpeed / newSpeed;
+      }
+
+      // Move player
+      player.position.x += velocity.x * dt;
+      player.position.z += velocity.y * dt;
+
+      // Keep the "shadow" under the block
+      shadowBlob.position.x = player.position.x;
+      shadowBlob.position.z = player.position.z;
+
+      // Smooth camera follow
+      camTarget.set(
+        player.position.x + camOffset.x,
+        player.position.y + camOffset.y,
+        player.position.z + camOffset.z
+      );
+      camera.position.lerp(camTarget, 1 - Math.pow(0.001, dt)); // exponential smoothing
+      camera.lookAt(player.position.x, player.position.y, player.position.z);
+
+      renderer.render(scene, camera);
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+
+    // Handle resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
