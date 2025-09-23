@@ -1,0 +1,57 @@
+export const WORLD = {
+  BG_COLOR: 0x0b0d12,
+  FOG_NEAR: 25,
+  FOG_FAR: 120,
+  PLAYER_BASE_H: 0.8,
+  PLAYER_RADIUS: 0.35,
+};
+
+export const MAZE = {
+  W: 21,
+  H: 21,
+  CELL: 2,
+  WALL_H: 1.6,
+};
+
+export const MOVE = {
+  ACCEL: 30,
+  MAX_SPEED: 5.0,
+  DAMPING: 12,
+  BASE_GRAVITY: -20,
+  BASE_JUMP_V: 6,
+};
+
+export const ENEMY = {
+  SPEED: 2.6,
+  RADIUS: 0.4,
+  DMG_PER_SEC: 10,
+  REPLAN_DT: 0.2,
+  TARGET_COUNT: 8,
+  SPAWN_MIN_DIST: MAZE.CELL * 6,
+  SEPARATION_DIST: MAZE.CELL * 2.5,
+  MAX_SPAWN_TRIES: 300,
+  SEPARATION_ITERATIONS: 2,
+  PUSH_FACTOR: 1.0,
+  PATHFIND_RADIUS: MAZE.CELL * 6,
+  WANDER_SPEED: 0.8,
+};
+
+export const COMBAT = {
+  HIT_DAMAGE: 10,
+  FIRE_COOLDOWN: 0.25,
+  RAYCAST_MAX: 5,
+};
+
+export const POWERUP = {
+  COUNT: 5,
+  DURATION: 10,
+  JUMP_MULT: 2,
+  GRAVITY_MULT: 0.3,
+  PICKUP_RADIUS: 0.6,
+};
+
+export const MINIMAP = {
+  TILE: 8,
+  PAD: 2,
+  RADIUS_TILES: 5,
+};
