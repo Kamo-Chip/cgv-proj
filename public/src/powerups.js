@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { POWERUP, MOVE } from "./constants.js";
 import { gridToWorld } from "./utils.js";
 
-export function initPowerups(scene, maze) {
+export function initPowerups(scene, maze,onGunPickup) {
   const powerups = []; // { mesh, gx, gy, taken }
   let jumpBoostActive = false;
   let jumpBoostTimeLeft = 0;
@@ -19,6 +19,25 @@ export function initPowerups(scene, maze) {
 
   function createAt(gx, gy) {
     const w = gridToWorld(gx, gy);
+
+       const isGun = Math.random() < 0.22; // ~22% chance it's a gun
+    if (isGun) {
+      // gun visual
+      const geo = new THREE.BoxGeometry(0.5, 0.2, 0.35);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0xdddddd,
+        metalness: 0.8,
+        roughness: 0.35,
+      });
+      const m = new THREE.Mesh(geo, mat);
+      m.castShadow = true;
+      m.position.set(w.x, 0.3, w.z);
+      m.rotation.y = Math.random() * Math.PI * 2;
+      scene.add(m);
+      powerups.push({ mesh: m, gx, gy, taken: false, type: "gun" });
+      return;
+    }
+
     const geo = new THREE.TorusKnotGeometry(0.3, 0.09, 64, 8);
     const mat = new THREE.MeshStandardMaterial({
       color: 0x7c9cff,
@@ -31,7 +50,7 @@ export function initPowerups(scene, maze) {
     m.castShadow = true;
     m.position.set(w.x, 0.6, w.z);
     scene.add(m);
-    powerups.push({ mesh: m, gx, gy, taken: false });
+    powerups.push({ mesh: m, gx, gy, taken: false ,type: "jump"});
   }
 
   function scatter() {
@@ -102,12 +121,22 @@ export function initPowerups(scene, maze) {
         camera.position.x - p.mesh.position.x,
         camera.position.z - p.mesh.position.z
       );
-      if (d <= POWERUP.PICKUP_RADIUS) {
+           if (d <= POWERUP.PICKUP_RADIUS) {
         p.taken = true;
         p.mesh.scale.setScalar(1.4);
         setTimeout(() => scene.remove(p.mesh), 80);
-        applyJumpBoost(player);
+
+        if (p.type === "jump") {
+          applyJumpBoost(player);
+        } else if (p.type === "gun") {
+          // call callback to give gun to player
+          if (typeof onGunPickup === "function") {
+            // pass the mesh position grid or world pos so main can place/instantiate the gun
+            onGunPickup({ gx: p.gx, gy: p.gy, worldPos: p.mesh.position.clone() });
+          }
+        }
       }
+
     }
 
     // timer
