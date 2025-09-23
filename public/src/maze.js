@@ -66,3 +66,26 @@ export function buildWalls(scene, maze) {
   scene.add(group);
   return { wallGroup: group, walls };
 }
+
+export function carveExitOnEdge(maze) {
+  const goalGX = MAZE.W - 2, goalGY = MAZE.H - 2;
+
+  // Candidate border cells (four directions from the goal toward edges)
+  const candidates = [
+    { gx: goalGX,   gy: 1,        edge: 'N', normal: {x: 0, z: -1} },
+    { gx: goalGX,   gy: MAZE.H-2, edge: 'S', normal: {x: 0, z:  1} },
+    { gx: 1,        gy: goalGY,   edge: 'W', normal: {x:-1, z:  0} },
+    { gx: MAZE.W-2, gy: goalGY,   edge: 'E', normal: {x: 1, z:  0} },
+  ];
+
+  // Score by distance from (goalGX,goalGY)
+  candidates.sort((a,b) => (Math.abs(a.gx-goalGX)+Math.abs(a.gy-goalGY)) - (Math.abs(b.gx-goalGX)+Math.abs(b.gy-goalGY)));
+  const pick = candidates[0];
+
+  // Open a passage at the border cell (turn wall into passage)
+  maze[pick.gy][pick.gx] = 1;
+
+  // Compute world position for center of that border cell
+  const world = gridToWorld(pick.gx, pick.gy);
+  return { gx: pick.gx, gy: pick.gy, edge: pick.edge, world, normal: pick.normal };
+}

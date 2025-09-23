@@ -1,19 +1,27 @@
 // src/powerups.js
-import * as THREE from "three";
-import { POWERUP, MOVE } from "./constants.js";
-import { gridToWorld } from "./utils.js";
+import * as THREE from 'three';
+import { POWERUP, MOVE } from './constants.js';
+import { gridToWorld } from './utils.js';
 
-export function initPowerups(scene, maze) {
+function cellId(x, y) { return `${x},${y}`; }
+
+/**
+ * Power-ups module (jump boost).
+ * - Robust scatter that always places the target count (relaxes spacing if needed).
+ * - Excludes start (1,1) and any cells passed via opts.excludeCells (e.g., door).
+ * - Safe HUD updates and timer management.
+ */
+export function initPowerups(scene, maze, opts = {}) {
   const powerups = []; // { mesh, gx, gy, taken }
   let jumpBoostActive = false;
   let jumpBoostTimeLeft = 0;
 
-  // HUD elements (simple & decoupled)
-  const jumpHud = document.getElementById("jumpHud");
-  const jumpTimerEl = document.getElementById("jumpTimer");
+  // HUD (optional)
+  const jumpHud = document.getElementById('jumpHud');
+  const jumpTimerEl = document.getElementById('jumpTimer');
 
   function updateJumpHud() {
-    if (!jumpBoostActive) return;
+    if (!jumpBoostActive || !jumpTimerEl) return;
     jumpTimerEl.textContent = jumpBoostTimeLeft.toFixed(1);
   }
 
@@ -34,33 +42,55 @@ export function initPowerups(scene, maze) {
     powerups.push({ mesh: m, gx, gy, taken: false });
   }
 
+  // Build exclusion set (strings "gx,gy")
+  const excluded = new Set(opts.excludeCells || []);
+  excluded.add(cellId(1, 1)); // always exclude player spawn
+
   function scatter() {
-    // remove old
+    // Clear old
     for (const p of powerups) scene.remove(p.mesh);
     powerups.length = 0;
 
-    const H = maze.length,
-      W = maze[0].length;
+    // Collect valid passage cells (inside border)
+    const H = maze.length, W = maze[0].length;
     const cells = [];
-    for (let y = 1; y < H - 1; y++)
-      for (let x = 1; x < W - 1; x++)
-        if (maze[y][x] === 1) cells.push({ x, y });
+    for (let y = 1; y < H - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        if (maze[y][x] === 1 && !excluded.has(cellId(x, y))) {
+          cells.push({ x, y });
+        }
+      }
+    }
 
+    if (!cells.length || POWERUP.COUNT <= 0) return;
+
+    // Shuffle
     for (let i = cells.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [cells[i], cells[j]] = [cells[j], cells[i]];
     }
 
+    // Try with decreasing Manhattan spacing until we place enough
+    const target = Math.max(0, POWERUP.COUNT | 0);
+    const gapCandidates = [3, 2, 1, 0];
     let placed = 0;
-    const minCellGap = 3;
-    const chosen = [];
-    for (const c of cells) {
-      if (placed >= POWERUP.COUNT) break;
-      const ok = chosen.every(
-        (d) => Math.abs(d.x - c.x) + Math.abs(d.y - c.y) >= minCellGap
-      );
-      if (!ok) continue;
-      chosen.push(c);
+
+    for (const gap of gapCandidates) {
+      if (placed >= target) break;
+      const chosen = [];
+      for (const c of cells) {
+        if (placed >= target) break;
+        const ok = chosen.every(d => Math.abs(d.x - c.x) + Math.abs(d.y - c.y) >= gap);
+        if (!ok) continue;
+        chosen.push(c);
+        createAt(c.x, c.y);
+        placed++;
+      }
+    }
+
+    // Fallback: random drop if still short
+    while (placed < target && cells.length) {
+      const c = cells[Math.floor(Math.random() * cells.length)];
       createAt(c.x, c.y);
       placed++;
     }
@@ -70,9 +100,9 @@ export function initPowerups(scene, maze) {
     jumpBoostActive = true;
     jumpBoostTimeLeft = POWERUP.DURATION;
     player.GRAVITY = MOVE.BASE_GRAVITY * POWERUP.GRAVITY_MULT;
-    player.JUMP_V = MOVE.BASE_JUMP_V * POWERUP.JUMP_MULT;
+    player.JUMP_V  = MOVE.BASE_JUMP_V  * POWERUP.JUMP_MULT;
     if (jumpHud) {
-      jumpHud.style.display = "inline-block";
+      jumpHud.style.display = 'inline-block';
       updateJumpHud();
     }
   }
@@ -81,21 +111,20 @@ export function initPowerups(scene, maze) {
     jumpBoostActive = false;
     jumpBoostTimeLeft = 0;
     player.GRAVITY = MOVE.BASE_GRAVITY;
-    player.JUMP_V = MOVE.BASE_JUMP_V;
-    if (jumpHud) jumpHud.style.display = "none";
+    player.JUMP_V  = MOVE.BASE_JUMP_V;
+    if (jumpHud) jumpHud.style.display = 'none';
   }
 
   function update(dt, player, camera) {
-    // spin/float
+    // Spin/float
     for (const p of powerups) {
       if (!p.taken) {
         p.mesh.rotation.y += dt * 1.5;
-        p.mesh.position.y =
-          0.55 + Math.sin(performance.now() * 0.003 + p.gx * 13.3) * 0.05;
+        p.mesh.position.y = 0.55 + Math.sin(performance.now() * 0.003 + p.gx * 13.3) * 0.05;
       }
     }
 
-    // pickup
+    // Pickup
     for (const p of powerups) {
       if (p.taken) continue;
       const d = Math.hypot(
@@ -110,7 +139,7 @@ export function initPowerups(scene, maze) {
       }
     }
 
-    // timer
+    // Timer tick
     if (jumpBoostActive) {
       jumpBoostTimeLeft -= dt;
       if (jumpBoostTimeLeft <= 0) {
@@ -125,6 +154,9 @@ export function initPowerups(scene, maze) {
     clearJumpBoost(player);
     scatter();
   }
+
+  // Ensure initial placement even if reset() hasn't run yet
+  scatter();
 
   return { powerups, update, reset, scatter };
 }

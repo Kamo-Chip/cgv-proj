@@ -22,7 +22,7 @@ export const MOVE = {
 };
 
 export const ENEMY = {
-  SPEED: 2.6,
+  SPEED: 0.6,
   RADIUS: 0.4,
   DMG_PER_SEC: 10,
   REPLAN_DT: 0.2,
@@ -55,3 +55,17 @@ export const MINIMAP = {
   PAD: 2,
   RADIUS_TILES: 5,
 };
+
+export const DOOR = {
+  EDGE: 'E',
+  WIDTH: 0.9,
+  THICK: 0.15,
+  HEIGHT: 1.2,
+  TRIGGER_DEPTH: 0.6,
+};
+
+export const KEYS = {
+  REQUIRED: 3,         // how many keycards must be collected
+  PICKUP_RADIUS: 0.6,  // distance to collect
+};
+
