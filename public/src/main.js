@@ -9,6 +9,8 @@ import { createMinimap } from "./minimap.js";
 import { initEnemies } from "./enemies.js";
 import { initPowerups } from "./powerups.js";
 import { gridToWorld } from "./utils.js";
+import { Gun } from "./gun.js";
+
 
 const { scene, renderer, camera } = createScene();
 const hud = createHUD();
@@ -52,8 +54,33 @@ function onPlayerDamage(dmg) {
 }
 const enemiesCtl = initEnemies(scene, camera, walls, maze, onPlayerDamage);
 
+let currentGun = null; // no gun initially
+
+function onGunPickup(info) {
+  // create a gun and equip immediately
+  if (currentGun) {
+    // you already have a gun — we can ignore or replace; here we replace
+    currentGun.dispose();
+    currentGun = null;
+  }
+
+  currentGun = new Gun({
+    scene,
+    camera,
+    wallGroup,      // from buildWalls returned value - ensure access
+    walls,          // walls array
+    enemies: enemiesCtl.enemies,
+    hud,
+  });
+
+  // Place a little "pickup gone" effect or sound here if you want
+  // HUD already shows ammo via updateAmmo when creating the Gun
+}
+
+
 // Powerups
-const powerupsCtl = initPowerups(scene, maze);
+const powerupsCtl = initPowerups(scene, maze,onGunPickup);
+
 
 // Minimap
 const minimap = createMinimap(
@@ -74,6 +101,11 @@ function resetGame() {
   player.setHealth(100);
   player.resetToStart(1, 1, goal.position);
   enemiesCtl.reset();
+   if (currentGun) {
+    currentGun.dispose();
+    currentGun = null;
+    if (hud && typeof hud.updateAmmo === "function") hud.updateAmmo(null, null);
+  }
   powerupsCtl.reset(player);
 
   if (document.pointerLockElement !== renderer.domElement) hud.showStart(true);
@@ -97,8 +129,14 @@ addEventListener("keydown", (e) => {
 addEventListener("mousedown", (e) => {
   if (e.button !== 0) return;
   if (document.pointerLockElement !== renderer.domElement) return;
-  enemiesCtl.performAttack(wallGroup);
+
+  if (currentGun) {
+    currentGun.fire();
+  } else {
+    enemiesCtl.performAttack(wallGroup);
+  }
 });
+
 
 // Start
 resetGame();
@@ -109,11 +147,23 @@ function tick(now = performance.now()) {
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
 
-  if (document.pointerLockElement === renderer.domElement && !won && !lost) {
-    player.update(dt);
-    enemiesCtl.update(dt, true);
-    powerupsCtl.update(dt, player, camera);
+if (document.pointerLockElement === renderer.domElement && !won && !lost) {
+  player.update(dt);
+  enemiesCtl.update(dt, true);
+  powerupsCtl.update(dt, player, camera);
+
+  if (currentGun) {
+    currentGun.update(dt);
+    // if gun is empty and not reloading, drop it (return to previous weapon)
+    if (currentGun.ammo <= 0 && !currentGun.reloading) {
+      // dispose and null it so player goes back to default attack
+      currentGun.dispose();
+      currentGun = null;
+      if (hud && typeof hud.updateAmmo === "function") hud.updateAmmo(null, null);
+    }
   }
+}
+
 
   if (!won && camera.position.distanceTo(goal.position) < 0.7) {
     won = true;

@@ -13,6 +13,28 @@ export function createHUD() {
     text.textContent = `Health: ${Math.round(h)} / 100`;
   }
 
+  const ammoEl = document.getElementById("ammo"); // optional: prefer existing element in DOM
+  function ensureAmmoEl() {
+    if (!ammoEl) {
+      // if you didn't create an element in HTML, create one under start or HUD container
+      const el = document.createElement("div");
+      el.id = "ammo";
+      el.className = "ammo-counter";
+      // append to body or a HUD container - adjust per your markup
+      document.body.appendChild(el);
+      return el;
+    }
+    return ammoEl;
+  }
+  function updateAmmo(ammo, mag) {
+    const el = ensureAmmoEl();
+    el.textContent = `${ammo} / ${mag}`;
+    // optional: hide if no gun
+    if (ammo === null || ammo === undefined) el.style.display = "none";
+    else el.style.display = "inline-block";
+  }
+
+
   function showStart(show) {
     start.classList.toggle("hidden", !show);
   }
@@ -37,5 +59,6 @@ export function createHUD() {
     showLose,
     hideLose,
     updateHealth,
+    updateAmmo,
   };
 }
