@@ -14,6 +14,9 @@ import { MAZE, WORLD } from './constants.js';
 import { initKeycards } from './keycards.js';
 import { KEYS } from './constants.js';
 import { worldToGrid } from './utils.js';
+import { initLightsaber } from './lightsaber.js';
+import { WEAPON } from './constants.js';
+
 
 
 const { scene, renderer, camera } = createScene();
@@ -56,6 +59,10 @@ function onPlayerDamage(dmg) {
 }
 const enemiesCtl = initEnemies(scene, camera, walls, maze, onPlayerDamage);
 const powerupsCtl = initPowerups(scene, maze);
+enemiesCtl.setWallGroupRef(wallGroup);
+const saberCtl = initLightsaber(scene, maze, {
+  excludeCells: [`${doorGrid.gx},${doorGrid.gy}`]
+});
 
 // Minimap (show the doorway center as "goal")
 const minimap = createMinimap(maze, /* goal */ { position: door.group.position }, enemiesCtl.enemies, powerupsCtl.powerups, camera, look);
@@ -69,6 +76,7 @@ function resetGame() {
   enemiesCtl.reset();
   powerupsCtl.reset(player);
   keycardsCt1.reset();
+  saberCtl.reset();
   // close the door (reset)
   door.hinge.rotation.y = 0;
   if (document.pointerLockElement !== renderer.domElement) hud.showStart(true);
@@ -80,10 +88,28 @@ document.addEventListener('pointerlockchange', () => {
   if (document.pointerLockElement !== renderer.domElement && !won && !lost) hud.showStart(true);
 });
 addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 'r') resetGame(); });
+// addEventListener('mousedown', (e) => {
+//   if (e.button !== 0) return;
+//   if (document.pointerLockElement !== renderer.domElement) return;
+//   enemiesCtl.performAttack(wallGroup);
+// });
 addEventListener('mousedown', (e) => {
-  if (e.button !== 0) return;
+  if (e.button !== 0) return; // left click
   if (document.pointerLockElement !== renderer.domElement) return;
-  enemiesCtl.performAttack(wallGroup);
+  if (won || lost) return;
+
+  if (saberCtl.collected) {
+    saberCtl.swing();
+
+    // Damage raycast (may be gated by cooldown; that’s fine)
+    enemiesCtl.performAttackWith({
+      damage: WEAPON.SABER.DAMAGE,
+      far: WEAPON.SABER.RANGE,
+      cooldown: WEAPON.SABER.COOLDOWN,
+    });
+  } else {
+    enemiesCtl.performAttack(wallGroup);
+  }
 });
 
 // Start
@@ -101,6 +127,7 @@ function tick(now = performance.now()) {
     enemiesCtl.update(dt, true);
     powerupsCtl.update(dt, player, camera);
     keycardsCt1.update(dt, camera);          // ← NEW
+    saberCtl.update(dt, camera); // <- NEW
   }
 
 

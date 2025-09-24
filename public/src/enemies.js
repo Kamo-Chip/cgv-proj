@@ -372,27 +372,51 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     if (fireTimer > 0) fireTimer = Math.max(0, fireTimer - dt);
   }
 
-  function performAttack(wallGroup) {
-    if (fireTimer > 0) return;
-    fireTimer = COMBAT.FIRE_COOLDOWN;
-    raycaster.setFromCamera(ndcCenter, camera);
-    raycaster.far = COMBAT.RAYCAST_MAX;
+  // keep existing raycaster, ndcCenter, and fireTimer variable
 
-    const aliveMeshes = enemies.filter((e) => !e.dead).map((e) => e.mesh);
+  function performAttackWith({ damage, far, cooldown }) {
+    if (fireTimer > 0) return;
+    fireTimer = Math.max(0, cooldown || 0);
+
+    raycaster.setFromCamera(ndcCenter, camera);
+    raycaster.far = far;
+
+    const aliveMeshes = enemies.filter(e => !e.dead).map(e => e.mesh);
     const hitsEnemies = raycaster.intersectObjects(aliveMeshes, false);
-    const hitsWalls = raycaster.intersectObjects([wallGroup], true);
+    const hitsWalls = raycaster.intersectObjects([wallGroupRef], true); // we'll set this
     const wallDist = hitsWalls.length ? hitsWalls[0].distance : Infinity;
-    const hit = hitsEnemies.find((h) => h.distance < wallDist);
+    const hit = hitsEnemies.find(h => h.distance < wallDist);
     if (!hit) return;
 
-    const enemy = enemies.find((e) => e.mesh === hit.object);
+    const enemy = enemies.find(e => e.mesh === hit.object);
     if (!enemy) return;
-    enemy.hp -= COMBAT.HIT_DAMAGE;
+    enemy.hp -= damage;
     enemy.hitFlash = 0.2;
     enemy.mesh.scale.setScalar(1.12);
     setTimeout(() => enemy.mesh.scale.setScalar(1), 80);
     if (enemy.hp <= 0 && !enemy.dead) enemy.dead = true;
   }
 
-  return { enemies, reset, update, performAttack };
+  // keep the existing performAttack(), but rewrite it as:
+  function performAttack() {
+    return performAttackWith({
+      damage: COMBAT.HIT_DAMAGE,
+      far: COMBAT.RAYCAST_MAX,
+      cooldown: COMBAT.FIRE_COOLDOWN,
+    });
+  }
+
+  // we need a reference to wallGroup for occlusion in performAttackWith:
+  let wallGroupRef = null;
+  function setWallGroupRef(group) { wallGroupRef = group; }
+
+  return {
+    enemies,
+    reset,
+    update,
+    performAttack,
+    performAttackWith,   // ← export the custom variant
+    setWallGroupRef,     // ← and this one
+  };
+
 }

@@ -69,3 +69,11 @@ export const KEYS = {
   PICKUP_RADIUS: 0.6,  // distance to collect
 };
 
+export const WEAPON = {
+  SABER: {
+    PICKUP_RADIUS: 0.7,
+    DAMAGE: 25,
+    COOLDOWN: 0.22,
+    RANGE: 3.5,
+  }
+};
