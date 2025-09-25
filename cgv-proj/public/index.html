@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>First-Person Maze — Three.js (Vanilla)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Three.js via import map -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+        }
+      }
+    </script>
+
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #0b0d12;
+        color: #e6f0ff;
+        font-family: ui-sans-serif, system-ui;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+      }
+
+      .hud {
+        position: fixed;
+        left: 12px;
+        top: 12px;
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 10px 12px;
+        border-radius: 10px;
+        font-size: 14px;
+        line-height: 1.4;
+        user-select: none;
+        backdrop-filter: blur(4px);
+        z-index: 5;
+        min-width: 280px;
+      }
+      .hud kbd {
+        background: #11161f;
+        border: 1px solid #324255;
+        border-bottom-width: 2px;
+        padding: 1px 6px;
+        border-radius: 6px;
+        font-size: 12px;
+        margin: 0 2px;
+        box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+      }
+      .health-wrap {
+        margin-top: 8px;
+      }
+      .healthbar {
+        height: 12px;
+        width: 100%;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+      .healthfill {
+        height: 100%;
+        width: 100%;
+        background: linear-gradient(90deg, #ff4d4d, #ffaf4d);
+        transform-origin: left center;
+      }
+      .healthtext {
+        font-size: 12px;
+        opacity: 0.85;
+        margin-top: 4px;
+      }
+
+      .center {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        pointer-events: none;
+        z-index: 3;
+      }
+      .crosshair {
+        width: 12px;
+        height: 12px;
+        position: relative;
+        opacity: 0.7;
+        filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.2));
+      }
+      .crosshair::before,
+      .crosshair::after {
+        content: "";
+        position: absolute;
+        background: #e6f0ff;
+      }
+      .crosshair::before {
+        left: 50%;
+        top: 0;
+        width: 2px;
+        height: 100%;
+        transform: translateX(-50%);
+      }
+      .crosshair::after {
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 2px;
+        transform: translateY(-50%);
+      }
+
+      .overlay {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: rgba(0, 0, 0, 0.55);
+        backdrop-filter: blur(3px);
+        z-index: 10;
+      }
+      .overlay.hidden {
+        display: none;
+      }
+      .panel {
+        padding: 18px 20px;
+        border-radius: 12px;
+        background: rgba(8, 12, 18, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        text-align: center;
+        max-width: 520px;
+      }
+      button {
+        cursor: pointer;
+        margin-top: 12px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 1px solid #2c3a4d;
+        background: #142131;
+        color: #e6f0ff;
+        font-weight: 600;
+      }
+      .credit {
+        position: fixed;
+        right: 12px;
+        bottom: 12px;
+        opacity: 0.7;
+        font-size: 12px;
+        z-index: 5;
+      }
+
+      .minimap-wrap {
+        position: fixed;
+        left: 12px;
+        bottom: 12px;
+        z-index: 6;
+        padding: 8px;
+        border-radius: 10px;
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(4px);
+      }
+      #minimap {
+        display: block;
+        image-rendering: pixelated;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div class="hud">
+      Click the screen to look around • Move: <kbd>W</kbd><kbd>A</kbd
+      ><kbd>S</kbd><kbd>D</kbd> or arrows • <b>Jump: <kbd>Space</kbd></b
+      ><br />
+      <b>Attack: Left Click</b> • Reset: <kbd>R</kbd> • Goal: glowing cube
+      <div class="health-wrap">
+        <div class="healthbar">
+          <div id="healthfill" class="healthfill"></div>
+        </div>
+        <div id="healthtext" class="healthtext">Health: 100 / 100</div>
+        <div
+          id="powerupsHud"
+          style="margin-top: 8px; display: flex; gap: 8px; align-items: center"
+        >
+          <div
+            id="jumpHud"
+            style="
+              display: none;
+              padding: 4px 8px;
+              border-radius: 8px;
+              background: #142131;
+              border: 1px solid #2c3a4d;
+              font-size: 12px;
+            "
+          >
+            Jump ↑ <span id="jumpTimer">10.0</span>s
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="center"><div class="crosshair"></div></div>
+
+    <div class="minimap-wrap">
+      <canvas id="minimap"></canvas>
+    </div>
+
+    <div id="start" class="overlay">
+      <div class="panel">
+        <h2 style="margin: 0.2rem 0 0.4rem">First-Person Maze</h2>
+        <div>Reach the glowing goal cube without touching the walls.</div>
+        <button id="playBtn">Click to Play</button>
+      </div>
+    </div>
+
+    <div id="win" class="overlay hidden">
+      <div class="panel">
+        <h2 style="margin: 0.2rem 0 0.6rem">You made it! 🎉</h2>
+        <div>
+          Press <b>R</b> to play again, or <b>Esc</b> to unlock the mouse.
+        </div>
+      </div>
+    </div>
+
+    <div id="lose" class="overlay hidden">
+      <div class="panel">
+        <h2 style="margin: 0.2rem 0 0.6rem">You were caught! 💀</h2>
+        <div>Press <b>R</b> to try again.</div>
+      </div>
+    </div>
+
+    <div class="credit">Three.js • first-person maze demo</div>
+  </body>
+
+  <!-- Module entry -->
+  <script type="module" src="./src/main.js"></script>
+</html>
