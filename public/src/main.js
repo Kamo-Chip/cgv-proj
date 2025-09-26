@@ -39,6 +39,9 @@ const player = new Player(camera, walls, look, hud);
 player.setHealth(100);
 player.resetToStart(1, 1, goal.position);
 
+// Powerups
+const powerupsCtl = initPowerups(scene, maze);
+
 // Enemies
 let lost = false,
   won = false;
@@ -50,10 +53,11 @@ function onPlayerDamage(dmg) {
     hud.showLose();
   }
 }
-const enemiesCtl = initEnemies(scene, camera, walls, maze, onPlayerDamage);
 
-// Powerups
-const powerupsCtl = initPowerups(scene, maze);
+// Enemies (pass powerupsCtl as parameter)
+const enemiesCtl = initEnemies(scene, camera, walls, maze, onPlayerDamage, powerupsCtl);
+
+
 
 // Minimap
 const minimap = createMinimap(
