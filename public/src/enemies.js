@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { ENEMY, COMBAT } from "./constants.js";
 import { gridToWorld, worldToGrid } from "./utils.js";
 
-export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
+export function initEnemies(scene, camera, walls, maze, onPlayerDamage, powerupsCtl) {
   const enemies = []; // { mesh, gx, gy, path, targetIndex, vx, vz, ... }
   const enemyGeo = new THREE.SphereGeometry(0.35, 16, 16);
   const baseMat = new THREE.MeshStandardMaterial({
@@ -232,8 +232,11 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     timeSinceReplan += dt;
     const pg = worldToGrid(camera.position.x, camera.position.z);
 
+    // Check if enemies should be frozen (new functionality)
+    const frozen = powerupsCtl && powerupsCtl.isFreezeActive;
+
     // periodic replan
-    if (timeSinceReplan >= ENEMY.REPLAN_DT) {
+    if (timeSinceReplan >= ENEMY.REPLAN_DT && !frozen) {
       for (const e of enemies) {
         if (e.dead) continue;
         const distToPlayer = Math.hypot(
@@ -256,7 +259,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
 
     // move enemies
     for (const e of enemies) {
-      if (e.dead) continue;
+      if (e.dead || frozen) continue;
 
       // decay hit flash
       e.hitFlash = Math.max(0, e.hitFlash - dt);
@@ -348,7 +351,8 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     // separation + touch damage
     resolveEnemyOverlaps();
 
-    if (canDealDamage) {
+    // Touch damage only applies if not frozen
+    if (canDealDamage && !frozen) {
       for (const e of enemies) {
         if (e.dead) continue;
         const pdx = camera.position.x - e.mesh.position.x;

@@ -48,6 +48,9 @@ export const POWERUP = {
   JUMP_MULT: 2,
   GRAVITY_MULT: 0.3,
   PICKUP_RADIUS: 0.6,
+  // New freeze powerup constants
+  FREEZE_COUNT: 3,           // Number of freeze powerups to spawn
+  FREEZE_DURATION: 4,        // How long enemies are frozen (seconds)
 };
 
 export const MINIMAP = {
