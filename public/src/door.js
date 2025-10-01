@@ -5,7 +5,7 @@ import { MAZE } from './constants.js';
 /**
  * Creates a door frame and a hinged door panel.
  * @param {'N'|'S'|'E'|'W'} edge - which edge of the maze the door is on
- * @returns { group, hinge, open(fn), isCrossed(playerPos, center, normal) }
+ * @returns { group, hinge, open(dt), triggerOpen(), isOpen(), resetClose(), isCrossed(playerPos, center, normal) }
  */
 export function createDoor(edge) {
   const group = new THREE.Group();
@@ -21,7 +21,9 @@ export function createDoor(edge) {
   leftPost.castShadow = rightPost.castShadow = lintel.castShadow = true;
 
   // Door panel (thin box), pivoted on left post
-  const doorMat = new THREE.MeshStandardMaterial({ color: 0x7CFF8A, roughness: 0.45, metalness: 0.2, emissive: 0x0, emissiveIntensity: 0 });
+  const doorMat = new THREE.MeshStandardMaterial({
+    color: 0x7CFF8A, roughness: 0.45, metalness: 0.2, emissive: 0x000000, emissiveIntensity: 0
+  });
   const panel = new THREE.Mesh(new THREE.BoxGeometry(openingW, postH*0.95, 0.06), doorMat);
   panel.castShadow = true;
 
@@ -47,14 +49,19 @@ export function createDoor(edge) {
   }
 
   // Simple opener
-  let t = 0, opening = false;
+  let t = 0;               // 0..1 open progress
+  let opening = false;
+  const OPEN_SPEED = 2.0;  // t += dt*2  → ~0.5s to open
+  const OPEN_ANGLE = -Math.PI/2; // 90° outward swing (negative yaw)
+
   function open(dt) {
     if (!opening) return;
-    t = Math.min(1, t + dt*2);            // 0→1 over ~0.5s
-    const angle = -Math.PI/2 * t;         // swing 90°
-    hinge.rotation.y = angle;
+    t = Math.min(1, t + dt * OPEN_SPEED);
+    hinge.rotation.y = OPEN_ANGLE * t;
   }
   function triggerOpen() { opening = true; }
+  function isOpen() { return t >= 0.98; }
+  function resetClose() { opening = false; t = 0; hinge.rotation.y = 0; }
 
   // Crossing test: dot((player-center), normal) > threshold
   function isCrossed(playerPos, center, normal) {
@@ -63,5 +70,5 @@ export function createDoor(edge) {
     return d > MAZE.CELL * 0.3; // crossed ~30% outward from the plane
   }
 
-  return { group, hinge, open, triggerOpen, isCrossed };
+  return { group, hinge, open, triggerOpen, isOpen, resetClose, isCrossed };
 }

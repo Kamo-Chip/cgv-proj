@@ -9,15 +9,12 @@ import { createMinimap } from './minimap.js';
 import { initEnemies } from './enemies.js';
 import { initPowerups } from './powerups.js';
 import { createDoor } from './door.js';
-import { gridToWorld } from './utils.js';
-import { MAZE, WORLD } from './constants.js';
+import { gridToWorld, worldToGrid } from './utils.js';
+import { MAZE } from './constants.js';
 import { initKeycards } from './keycards.js';
 import { KEYS } from './constants.js';
-import { worldToGrid } from './utils.js';
 import { initLightsaber } from './lightsaber.js';
 import { WEAPON } from './constants.js';
-
-
 
 const { scene, renderer, camera } = createScene();
 const hud = createHUD();
@@ -25,47 +22,57 @@ const { look, lockPointer } = createLookControls(renderer, camera);
 
 // Maze + walls
 const maze = generateMaze();
-const exitInfo = carveExitOnEdge(maze);           // <-- NEW: open border cell for exit
+const exitInfo = carveExitOnEdge(maze); // { edge, world: {x,z}, normal:{x,z} }
 const { wallGroup, walls } = buildWalls(scene, maze);
 
-// Door at the exit
+// Door
 const door = createDoor(exitInfo.edge);
 door.group.position.set(exitInfo.world.x, 0, exitInfo.world.z);
-const DOOR_REACH_RADIUS = 1.0;
-const doorGrid = worldToGrid(door.group.position.x, door.group.position.z);
 
-//init keycards (exclude start + door cell)
-const keycardsCt1 = initKeycards(scene, maze, {
-  excludeCells: [ `${doorGrid.gx},${doorGrid.gy}`],
-});
-
-// Nudge the door slightly outward so it sits flush with the outer face
+// Nudge the door outward to sit flush with the border face
 door.group.position.x += exitInfo.normal.x * (MAZE.CELL * 0.5 - 0.001);
 door.group.position.z += exitInfo.normal.z * (MAZE.CELL * 0.5 - 0.001);
-
 scene.add(door.group);
+
+// Use final door position for exclusions
+const doorGrid = worldToGrid(door.group.position.x, door.group.position.z);
 
 // Player
 const player = new Player(camera, walls, look, hud);
 player.setHealth(100);
-player.resetToStart(1, 1, door.group.position); // look roughly toward the door by default
+player.resetToStart(1, 1, door.group.position);
 
-// Enemies + Powerups
+// Enemies + Powerups + Saber + Keycards
 let lost = false, won = false;
+
 function onPlayerDamage(dmg) {
   if (lost || won) return;
   player.setHealth(player.health - dmg);
   if (player.health <= 0 && !lost) { lost = true; hud.showLose(); }
 }
+
 const enemiesCtl = initEnemies(scene, camera, walls, maze, onPlayerDamage);
-const powerupsCtl = initPowerups(scene, maze);
 enemiesCtl.setWallGroupRef(wallGroup);
-const saberCtl = initLightsaber(scene, maze, {
-  excludeCells: [`${doorGrid.gx},${doorGrid.gy}`]
+
+const powerupsCtl = initPowerups(scene, maze);
+
+const keycardsCt1 = initKeycards(scene, maze, {
+  excludeCells: [`${doorGrid.gx},${doorGrid.gy}`],
 });
 
-// Minimap (show the doorway center as "goal")
-const minimap = createMinimap(maze, /* goal */ { position: door.group.position }, enemiesCtl.enemies, powerupsCtl.powerups, camera, look);
+const saberCtl = initLightsaber(scene, maze, {
+  excludeCells: [`${doorGrid.gx},${doorGrid.gy}`],
+});
+
+// Minimap
+const minimap = createMinimap(
+  maze,
+  { position: door.group.position },
+  enemiesCtl.enemies,
+  powerupsCtl.powerups,
+  camera,
+  look
+);
 
 // Reset flow
 function resetGame() {
@@ -77,8 +84,7 @@ function resetGame() {
   powerupsCtl.reset(player);
   keycardsCt1.reset();
   saberCtl.reset();
-  // close the door (reset)
-  door.hinge.rotation.y = 0;
+  door.resetClose(); // <— ensure closed state
   if (document.pointerLockElement !== renderer.domElement) hud.showStart(true);
 }
 
@@ -88,11 +94,8 @@ document.addEventListener('pointerlockchange', () => {
   if (document.pointerLockElement !== renderer.domElement && !won && !lost) hud.showStart(true);
 });
 addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 'r') resetGame(); });
-// addEventListener('mousedown', (e) => {
-//   if (e.button !== 0) return;
-//   if (document.pointerLockElement !== renderer.domElement) return;
-//   enemiesCtl.performAttack(wallGroup);
-// });
+
+// Mouse: LMB triggers saber swing (if collected) with mid-swing hit timing
 addEventListener('mousedown', (e) => {
   if (e.button !== 0) return; // left click
   if (document.pointerLockElement !== renderer.domElement) return;
@@ -100,13 +103,15 @@ addEventListener('mousedown', (e) => {
 
   if (saberCtl.collected) {
     saberCtl.swing();
-
-    // Damage raycast (may be gated by cooldown; that’s fine)
-    enemiesCtl.performAttackWith({
-      damage: WEAPON.SABER.DAMAGE,
-      far: WEAPON.SABER.RANGE,
-      cooldown: WEAPON.SABER.COOLDOWN,
-    });
+    // Hit window roughly mid-swing (adjust 100–150ms to taste)
+    setTimeout(() => {
+      if (won || lost || !saberCtl.collected) return;
+      enemiesCtl.performAttackWith({
+        damage: WEAPON.SABER.DAMAGE,
+        far: WEAPON.SABER.RANGE,
+        cooldown: WEAPON.SABER.COOLDOWN,
+      });
+    }, 120);
   } else {
     enemiesCtl.performAttack(wallGroup);
   }
@@ -117,36 +122,36 @@ resetGame();
 
 // Animate
 let last = performance.now();
+
 function tick(now = performance.now()) {
-  const dt = Math.min((now - last)/1000, 0.05);
-  const haveAllKeys = keycardsCt1.collected >= KEYS.REQUIRED;
+  const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
+
+  const haveAllKeys = keycardsCt1.collected >= KEYS.REQUIRED;
 
   if (document.pointerLockElement === renderer.domElement && !won && !lost) {
     player.update(dt);
     enemiesCtl.update(dt, true);
     powerupsCtl.update(dt, player, camera);
-    keycardsCt1.update(dt, camera);          // ← NEW
-    saberCtl.update(dt, camera); // <- NEW
+    keycardsCt1.update(dt, camera);
+    
   }
+  saberCtl.update(dt, camera);
 
-
-  if(haveAllKeys){
+  // Door open logic: require keys, then open when player is near the inside
+  if (haveAllKeys) {
     const toDoor = camera.position.clone().sub(door.group.position);
-    const innerDot = toDoor.x*(-exitInfo.normal.x) + toDoor.z*(-exitInfo.normal.z);
-    if(innerDot>-MAZE.CELL && toDoor.length()<MAZE.CELL*1.2){
+    const innerDot = toDoor.x * (-exitInfo.normal.x) + toDoor.z * (-exitInfo.normal.z);
+    if (innerDot > -MAZE.CELL && toDoor.length() < MAZE.CELL * 1.2) {
       door.triggerOpen();
     }
     door.open(dt);
   }
 
-  // Win: cross the doorway plane outward
-  if (!won) {
-    const distToDoor = camera.position.distanceTo(door.group.position);
-    if(distToDoor <= DOOR_REACH_RADIUS){
-      won = true;
-      hud.showWin();
-    }
+  // Win only if the door is open AND player has crossed the plane outward
+  if (!won && door.isOpen() && door.isCrossed(camera.position, door.group.position, exitInfo.normal)) {
+    won = true;
+    hud.showWin();
   }
 
   minimap.draw();

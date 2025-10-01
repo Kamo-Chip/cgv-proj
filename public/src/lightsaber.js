@@ -6,7 +6,6 @@ import { gridToWorld } from './utils.js';
 function cellId(x, y) { return `${x},${y}`; }
 
 export function initLightsaber(scene, maze, opts = {}) {
-  // ----- State -----
   let collected = false;
 
   // World pickup (group at world position)
@@ -15,9 +14,9 @@ export function initLightsaber(scene, maze, opts = {}) {
   // First-person viewmodel (attached to camera)
   let viewGroup = null;
   let viewParentCamera = null;
-  let swingT = 0; // 0..1 animation timer
+  let swingT = 0; // 0..1 animation timer (counts down)
 
-  // ----- HUD chip -----
+  // HUD chip
   const hudWrap = document.getElementById('powerupsHud');
   const saberHud = document.createElement('div');
   saberHud.style.cssText = `
@@ -30,7 +29,7 @@ export function initLightsaber(scene, maze, opts = {}) {
   if (hudWrap) hudWrap.appendChild(saberHud);
   const setHud = () => { saberHud.textContent = collected ? 'Saber: ready' : 'Saber: not found'; };
 
-  // ----- Builders -----
+  // ---------- builders ----------
   function buildSaberMesh({ bladeLen = 0.9, bladeRadius = 0.028 }) {
     const hiltH = 0.38;
 
@@ -62,6 +61,36 @@ export function initLightsaber(scene, maze, opts = {}) {
     return { group: g, blade, hilt };
   }
 
+  // lightweight arm
+  function buildArmMesh() {
+    const skin = new THREE.MeshStandardMaterial({ color: 0xd2a679, roughness: 0.7, metalness: 0.0 });
+    const sleeveMat = new THREE.MeshStandardMaterial({ color: 0x1e2530, roughness: 0.8, metalness: 0.0 });
+
+    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.42, 16), sleeveMat);
+    const wristRing = new THREE.Mesh(new THREE.TorusGeometry(0.095, 0.02, 12, 24), sleeveMat);
+    wristRing.rotation.x = Math.PI * 0.5;
+    const hand = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.22), skin);
+
+    const arm = new THREE.Group();
+    forearm.castShadow = hand.castShadow = false;
+    forearm.receiveShadow = hand.receiveShadow = false;
+
+    arm.add(forearm);
+    forearm.position.set(0, -0.08, -0.05);
+
+    const wristNode = new THREE.Group();
+    wristNode.add(wristRing);
+    wristNode.position.set(0, -0.23, -0.05);
+    arm.add(wristNode);
+
+    const handNode = new THREE.Group();
+    handNode.add(hand);
+    handNode.position.set(0.04, -0.31, 0.05);
+    arm.add(handNode);
+
+    return { group: arm, nodes: { wristNode, handNode } };
+  }
+
   function spawnPickup() {
     const H = maze.length, W = maze[0].length;
     const excluded = new Set(opts.excludeCells || []);
@@ -76,15 +105,13 @@ export function initLightsaber(scene, maze, opts = {}) {
     if (!cells.length) return;
 
     const pick = cells[Math.floor(Math.random() * cells.length)];
-    const { x, y } = pick;
-    const { x: wx, z: wz } = gridToWorld(x, y);
+    const { x: wx, z: wz } = gridToWorld(pick.x, pick.y);
 
     const { group: saber } = buildSaberMesh({ bladeLen: 1.1, bladeRadius: 0.03 });
-    saber.position.set(0, 0, 0);     // local to parent
-    saber.rotation.z = -0.25;        // slight lean
+    saber.position.set(0, 0, 0);
+    saber.rotation.z = -0.25;
     saber.traverse(o => { if (o.isMesh) o.castShadow = true; });
 
-    // (Optional) beacon above it
     const beacon = new THREE.Mesh(
       new THREE.ConeGeometry(0.10, 0.28, 16),
       new THREE.MeshStandardMaterial({ color: 0x9ff5ff, emissive: 0x44ccff, emissiveIntensity: 1.0, roughness: 0.2 })
@@ -99,8 +126,6 @@ export function initLightsaber(scene, maze, opts = {}) {
     pickupGroup.position.set(wx, 0, wz);
     pickupGroup.add(saber, beacon, light);
     scene.add(pickupGroup);
-
-    console.log('[lightsaber] pickup at grid', pick, 'world', { x: wx, z: wz });
   }
 
   function removePickup() {
@@ -116,14 +141,18 @@ export function initLightsaber(scene, maze, opts = {}) {
   function ensureViewModel(camera) {
     if (viewGroup) return;
 
-    const { group, blade } = buildSaberMesh({ bladeLen: 0.9, bladeRadius: 0.028 });
+    const { group: saber, blade } = buildSaberMesh({ bladeLen: 0.9, bladeRadius: 0.028 });
+    const arm = buildArmMesh();
 
-    // Always-on-top, no fog/depth
+    const group = new THREE.Group();
+    group.add(arm.group);
+    group.add(saber);
+
+    // always on top
     group.renderOrder = 9999;
     group.traverse(o => {
       if (o.isMesh) {
-        o.castShadow = false;
-        o.receiveShadow = false;
+        o.castShadow = o.receiveShadow = false;
         o.frustumCulled = false;
         o.material.depthTest = false;
         o.material.depthWrite = false;
@@ -131,10 +160,19 @@ export function initLightsaber(scene, maze, opts = {}) {
       }
     });
 
-    // Camera space pose
-    group.position.set(0.28, -0.22, -0.8); // tweak Z if near-plane clips
-    group.rotation.set(-0.15, 0.25, 0.55);
-    group.userData.blade = blade;
+    // base camera-space pose
+    const base = {
+      pos: new THREE.Vector3(0.32, -0.26, -1.15),
+      rot: new THREE.Euler(-0.15, 0.25, 0.55),
+    };
+    group.position.copy(base.pos);
+    group.rotation.copy(base.rot);
+
+    // position saber relative to arm (grip alignment)
+    saber.position.set(0.06, -0.02, -0.06);
+    saber.rotation.set(-0.12, 0.4, 0.85);
+
+    group.userData = { blade, base, armNodes: arm.nodes };
 
     viewGroup = group;
     viewParentCamera = camera;
@@ -151,10 +189,9 @@ export function initLightsaber(scene, maze, opts = {}) {
     ensureViewModel(camera);
   }
 
-  // ----- Public methods implemented BEFORE return -----
-
+  // ---------- loop ----------
   function update(dt, camera) {
-    // Animate pickup beacon + proximity
+    // beacon + proximity
     if (pickupGroup) {
       const beacon = pickupGroup.children.find(o => o.isMesh && o.geometry?.type === 'ConeGeometry');
       if (beacon) {
@@ -167,35 +204,46 @@ export function initLightsaber(scene, maze, opts = {}) {
       if (d <= WEAPON.SABER.PICKUP_RADIUS) pickup(camera);
     }
 
-    // Viewmodel animation (always updates if we have it)
+    // saber+arm swing
     if (viewGroup) {
       if (swingT > 0) {
-        swingT = Math.max(0, swingT - dt * 4.0); // return speed
-        const swingAmt = Math.sin((1 - swingT) * Math.PI) * 0.65;
+        swingT = Math.max(0, swingT - dt * 2.5); // ~250ms total
+        const phase = 1 - swingT;                 // 0→1
+        const swingAmt = Math.sin(Math.min(phase, 1) * Math.PI); // 0..1..0
+        const strong = 1.25;
 
-        const baseRotX = -0.15, baseRotY = 0.25, baseRotZ = 0.55;
-        const basePos = { x: 0.28, y: -0.22, z: -0.8 };
+        const { base, armNodes, blade } = viewGroup.userData;
 
         viewGroup.rotation.set(
-          baseRotX + swingAmt * 0.30,
-          baseRotY,
-          baseRotZ + swingAmt * 0.80
+          base.rot.x + swingAmt * 0.55 * strong,
+          base.rot.y + swingAmt * 0.25 * strong,
+          base.rot.z + swingAmt * 1.35 * strong
         );
         viewGroup.position.set(
-          basePos.x + swingAmt * 0.03,
-          basePos.y + swingAmt * -0.02,
-          basePos.z
+          base.pos.x + swingAmt * 0.06 * strong,
+          base.pos.y + swingAmt * -0.03 * strong,
+          base.pos.z + swingAmt * -0.03 * strong
         );
 
-        const blade = viewGroup.userData.blade;
-        if (blade?.material) blade.material.emissiveIntensity = 1.2 + swingAmt * 0.8;
+        if (armNodes) {
+          armNodes.wristNode.rotation.z = -swingAmt * 0.35 * strong;
+          armNodes.handNode.rotation.x =  swingAmt * 0.25 * strong;
+          armNodes.handNode.rotation.y =  swingAmt * 0.15 * strong;
+        }
+
+        if (blade?.material) blade.material.emissiveIntensity = 1.2 + swingAmt * 0.9;
+      } else {
+        const blade = viewGroup.userData?.blade;
+        if (blade?.material && blade.material.emissiveIntensity > 1.2) {
+          blade.material.emissiveIntensity = THREE.MathUtils.lerp(blade.material.emissiveIntensity, 1.2, 0.2);
+        }
       }
     }
   }
 
   function swing() {
     if (!collected || !viewGroup) return;
-    swingT = 1.0; // trigger full swing animation
+    swingT = 1.0;
   }
 
   function reset() {
@@ -215,15 +263,14 @@ export function initLightsaber(scene, maze, opts = {}) {
     spawnPickup();
   }
 
-  // ----- Init -----
+  // init
   setHud();
   reset();
 
-  // ----- API -----
   return {
     update,
     reset,
-    swing, // <<— ensure this exists BEFORE returning it
+    swing,
     get collected() { return collected; },
   };
 }
