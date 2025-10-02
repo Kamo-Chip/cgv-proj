@@ -21,6 +21,11 @@ export class Player {
     this.hud = hud;
     this.keys = new Set();
 
+    this.MAX_SPEED = MOVE.MAX_SPEED;
+    this.ACCEL = MOVE.ACCEL;
+
+    this.collectedKeys = new Set();
+
     addEventListener("keydown", (e) => {
       const k = e.key.toLowerCase();
       if (
@@ -74,6 +79,18 @@ export class Player {
     }
   }
 
+  resetKeys() {
+    this.collectedKeys.clear();
+  }
+
+  collectKey(keyId) {
+    this.collectedKeys.add(keyId);
+  }
+
+  hasAllKeys(totalKeys) {
+    return this.collectedKeys.size >= totalKeys;
+  }
+
   update(dt) {
     // input axes
     let ax = 0,
@@ -99,8 +116,8 @@ export class Player {
       .negate();
 
     // accelerate
-    this.vel.x += (right.x * ax + fwd.x * az) * MOVE.ACCEL * dt;
-    this.vel.y += (right.z * ax + fwd.z * az) * MOVE.ACCEL * dt;
+    this.vel.x += (right.x * ax + fwd.x * az) * this.ACCEL * dt;
+    this.vel.y += (right.z * ax + fwd.z * az) * this.ACCEL * dt;
 
     // damping + clamp
     const sp = Math.hypot(this.vel.x, this.vel.y);
@@ -110,9 +127,9 @@ export class Player {
       this.vel.y *= damp;
     }
     const sp2 = Math.hypot(this.vel.x, this.vel.y);
-    if (sp2 > MOVE.MAX_SPEED) {
-      this.vel.x *= MOVE.MAX_SPEED / sp2;
-      this.vel.y *= MOVE.MAX_SPEED / sp2;
+    if (sp2 > this.MAX_SPEED) {
+      this.vel.x *= this.MAX_SPEED / sp2;
+      this.vel.y *= this.MAX_SPEED / sp2;
     }
 
     // propose move

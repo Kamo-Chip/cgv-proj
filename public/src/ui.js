@@ -28,6 +28,29 @@ export function createHUD() {
   function hideLose() {
     lose.classList.add("hidden");
   }
+  function updateKeys(collected, total) {
+    const keysCount = document.getElementById("keysCount");
+    const keysTotal = document.getElementById("keysTotal");
+    if (keysCount && keysTotal) {
+      keysCount.textContent = collected;
+      keysTotal.textContent = total;
+    }
+  }
+
+  function updateWeapon(equipped) {
+    const weapName = document.getElementById("weaponName");
+    const weapAmmo = document.getElementById("weaponAmmo");
+    if (!weapName || !weapAmmo) return;
+    if (!equipped || !equipped.weapon) {
+      weapName.textContent = "Unarmed";
+      weapAmmo.textContent = "";
+      weapName.style.opacity = 0.6;
+      return;
+    }
+    weapName.textContent = equipped.weapon.hudName || equipped.weapon.name;
+    weapAmmo.textContent = equipped.ammo === Infinity ? "∞" : equipped.ammo;
+    weapName.style.opacity = 1.0;
+  }
 
   return {
     playBtn,
@@ -37,5 +60,7 @@ export function createHUD() {
     showLose,
     hideLose,
     updateHealth,
+    updateKeys,
+    updateWeapon,
   };
 }

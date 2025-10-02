@@ -18,6 +18,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
 
   let timeSinceReplan = 0;
   let fireTimer = 0;
+  let frozen = false;
 
   function bfsPath(sx, sy, tx, ty) {
     if (sx === tx && sy === ty) return [{ gx: sx, gy: sy }];
@@ -228,7 +229,39 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     e.mesh.position.z += Math.sin(a) * 0.02;
   }
 
+  function setFrozen(isFrozen) {
+    frozen = isFrozen;
+    for (const e of enemies) {
+      if (isFrozen) {
+        e.mesh.material.color.set(0xcccccc);
+        e.mesh.material.emissive.set(0x555555);
+      } else {
+        e.mesh.material.color.set(0xff5252);
+        e.mesh.material.emissive.set(0x550000);
+      }
+    }
+  }
+
   function update(dt, canDealDamage = true) {
+    if (frozen) {
+      // enemies don't move or deal damage
+      for (const e of enemies) {
+        e.hitFlash = Math.max(0, e.hitFlash - dt);
+        e.mesh.material.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
+      }
+      // prune dead & top up
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        if (enemies[i].dead) {
+          scene.remove(enemies[i].mesh);
+          enemies.splice(i, 1);
+        }
+      }
+      ensureQuota();
+      // cooldown tick
+      if (fireTimer > 0) fireTimer = Math.max(0, fireTimer - dt);
+      return;
+    }
+
     timeSinceReplan += dt;
     const pg = worldToGrid(camera.position.x, camera.position.z);
 
@@ -394,5 +427,5 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     if (enemy.hp <= 0 && !enemy.dead) enemy.dead = true;
   }
 
-  return { enemies, reset, update, performAttack };
+  return { enemies, reset, update, performAttack, setFrozen };
 }

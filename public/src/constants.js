@@ -15,7 +15,7 @@ export const MAZE = {
 
 export const MOVE = {
   ACCEL: 30,
-  MAX_SPEED: 5.0,
+  MAX_SPEED: 20,
   DAMPING: 12,
   BASE_GRAVITY: -20,
   BASE_JUMP_V: 6,
@@ -43,11 +43,18 @@ export const COMBAT = {
 };
 
 export const POWERUP = {
-  COUNT: 5,
-  DURATION: 10,
+  COUNT: 10,
+  DURATION: 100,
   JUMP_MULT: 2,
   GRAVITY_MULT: 0.3,
   PICKUP_RADIUS: 0.6,
+};
+
+export const WEAPON = {
+  COUNT: 6,
+  PICKUP_RADIUS: 1.0,
+  SPAWN_MIN_DIST: MAZE.CELL * 4,
+  SEPARATION_DIST: MAZE.CELL * 2.2,
 };
 
 export const MINIMAP = {

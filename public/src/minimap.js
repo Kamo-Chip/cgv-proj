@@ -7,6 +7,7 @@ export function createMinimap(
   goal,
   enemiesRef,
   powerupsRef,
+  weaponsRef,
   camera,
   look
 ) {
@@ -94,6 +95,33 @@ export function createMinimap(
           TILE - 6,
           TILE - 6
         );
+      }
+    }
+
+    // weapons (if wired in)
+    if (weaponsRef?.length) {
+      mm.fillStyle = "#ffd36b";
+      for (const w of weaponsRef) {
+        if (w.taken) continue;
+        const ww = gridToWorld(w.gx, w.gy);
+        const pg = worldToGrid(ww.x, ww.z);
+        const cx = PAD + (pg.gx + 0.5) * TILE;
+        const cy = PAD + (pg.gy + 0.5) * TILE;
+        if ((cx - px) ** 2 + (cy - py) ** 2 > R * R) continue;
+        mm.fillRect(PAD + pg.gx * TILE + 3, PAD + pg.gy * TILE + 3, TILE - 6, TILE - 6);
+      }
+    }
+
+    // keys (if you wire them in)
+    if (window.keyMeshes?.length) {
+      mm.fillStyle = "#ffff00"; // bright yellow for keys
+      for (const k of window.keyMeshes) {
+        const w = k.mesh.position;
+        const pg = worldToGrid(w.x, w.z);
+        const cx = PAD + (pg.gx + 0.5) * TILE;
+        const cy = PAD + (pg.gy + 0.5) * TILE;
+        if ((cx - px) ** 2 + (cy - py) ** 2 > R * R) continue;
+        mm.fillRect(cx - TILE * 0.2, cy - TILE * 0.2, TILE * 0.4, TILE * 0.4);
       }
     }
 
