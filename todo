@@ -1,0 +1,52 @@
+# Project TODO
+
+> Team of 5 — equal ownership. Everyone contributes and reviews work; split features so load is balanced.
+
+Conventions
+- Status: TODO / In Progress / Blocked / Review / Done
+- Estimate: small (1–2d) / medium (3–5d) / large (1+ sprint)
+
+## Team of 5 — Owners (equal contribution)
+Each member takes responsibility for completing and reviewing their assigned tasks and helps others during integration.
+
+- Member 1 — Gameplay & Player (Emmanuel)
+  - Show equipped weapon in bottom-right (HUD) — TODO (small)
+  - Animate equipped weapon on action — TODO (medium)
+  - Basic input mapping & sensitivity — TODO (small)
+  - Help implement collision/physics (player testing) — TODO (medium)
+
+- Member 2 — Camera & Controls (Priya)
+  - Add third-person view / camera setup and collision — TODO (large)
+  - Camera shake and polish — TODO (small)
+  - Assist gameplay on weapon animations/integration — TODO (small)
+
+- Member 3 — Enemies & AI (Willy)
+  - Add enemy model and import — TODO (small)
+  - Animate enemies (idle / walk / attack / hit / die) — TODO (medium)
+  - Implement basic AI states (patrol, chase, attack) — TODO (large)
+  - Pathfinding / navmesh (collaborate on scope) — TODO (large)
+
+- Member 4 — Art, Visuals & VFX (Ndumiso)
+  - Add walls and floor (level geometry) — TODO (small)
+  - Add dynamic sky box and basic lighting — TODO (small)
+  - Add particles and VFX (pooled where appropriate) — TODO (medium)
+  - Asset optimization and LOD setup — TODO (medium)
+
+- Member 5 — Audio & UI (Kamogelo)
+  - Add sound effects (powerup equip, weapon equip, attack) — TODO (small)
+  - Spatialized audio and mixer, volume controls — TODO (medium)
+  - HUD elements: health, ammo/weapon UI, minimap updates — TODO (medium)
+  - Home screen, settings, tutorial/tooltips, accessibility — TODO (medium)
+
+## Core Systems (shared)
+- Asset loading & error handling (loading screen) — TODO (medium)
+- Performance: framerate caps, memory management — TODO (medium)
+- Save / load or checkpoints — TODO (medium)
+- Pause / restart / respawn and game-over flow — TODO (medium)
+- Build pipeline, testing, logging, CI — TODO (large)
+
+## Integration notes
+- Use feature branches and open PRs (branch names: feature/<area>)
+- Pair-review at least one PR across different members each week
+- Owners demo a small scene for integration; others help test and report issues
+- Cross-team tasks: write a short spec and pair for the integration step

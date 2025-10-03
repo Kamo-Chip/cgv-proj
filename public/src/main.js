@@ -2,7 +2,13 @@ import * as THREE from "three";
 import { createScene } from "./scene.js";
 import { createLookControls } from "./controls.js";
 import { createHUD } from "./ui.js";
-import { generateMaze, buildWalls, generateKeys, buildKeys } from "./maze.js";
+import {
+  generateMaze,
+  buildWalls,
+  generateKeys,
+  buildKeys,
+  updateKeys,
+} from "./maze.js";
 import { Player } from "./player.js";
 import { createMinimap } from "./minimap.js";
 import { initEnemies } from "./enemies.js";
@@ -82,16 +88,14 @@ const minimap = createMinimap(
 );
 
 // Keys
-const NUM_KEYS = 1; // Adjustable number of keys
+const NUM_KEYS = 3; // Adjustable number of keys
 const keys = generateKeys(maze, NUM_KEYS);
-const keyMeshes = buildKeys(scene, keys);
-
-window.keyMeshes = keyMeshes;
+let keyMeshes = []; // populated asynchronously by buildKeys
 
 hud.updateKeys(0, NUM_KEYS);
 
 // Reset flow
-function resetGame() {
+async function resetGame() {
   won = false;
   lost = false;
   hud.hideWin();
@@ -107,7 +111,7 @@ function resetGame() {
   for (const k of keyMeshes) scene.remove(k.mesh);
   // Generate new keys
   keys.splice(0, keys.length, ...generateKeys(maze, NUM_KEYS));
-  keyMeshes.splice(0, keyMeshes.length, ...buildKeys(scene, keys));
+  keyMeshes = await buildKeys(scene, keys);
   hud.updateKeys(0, NUM_KEYS);
   window.keyMeshes = keyMeshes;
   door.position.y = DOOR_H / 2;
@@ -156,54 +160,60 @@ function checkKeyCollection() {
   }
 }
 
-// Start
-resetGame();
+// Start (ensure keys are loaded before animation)
+async function startGame() {
+  await resetGame();
 
-// Animate
-let last = performance.now();
-function tick(now = performance.now()) {
-  const dt = Math.min((now - last) / 1000, 0.05);
-  last = now;
+  // Animate
+  let last = performance.now();
+  function tick(now = performance.now()) {
+    const dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
 
-  if (document.pointerLockElement === renderer.domElement && !won && !lost) {
-    player.update(dt);
-    enemiesCtl.update(dt, true);
-    powerupsCtl.update(dt, player, camera);
-    weaponsCtl.update(dt, player, camera, enemiesCtl);
-    checkKeyCollection();
+    if (document.pointerLockElement === renderer.domElement && !won && !lost) {
+      player.update(dt);
+      enemiesCtl.update(dt, true);
+      powerupsCtl.update(dt, player, camera);
+      weaponsCtl.update(dt, player, camera, enemiesCtl);
+      updateKeys(keyMeshes, dt);
+      checkKeyCollection();
+    }
+
+    // Door logic
+    // Only open door when player is near and has all keys
+    if (
+      !doorOpen &&
+      player.hasAllKeys(NUM_KEYS) &&
+      Math.abs(camera.position.x - door.position.x) < DOOR_W / 2 &&
+      Math.abs(camera.position.z - door.position.z) < MAZE.CELL / 2
+    ) {
+      doorOpen = true;
+    }
+    if (doorOpen && door.position.y < MAZE.WALL_H + DOOR_H / 2) {
+      doorAnimY += dt * MAZE.WALL_H * 2;
+      door.position.y = Math.min(doorAnimY, MAZE.WALL_H + DOOR_H / 2);
+    }
+
+    // Win logic: walk through open door
+    if (
+      !won &&
+      doorOpen &&
+      Math.abs(camera.position.x - door.position.x) < DOOR_W / 2 &&
+      Math.abs(camera.position.z - door.position.z) < MAZE.CELL / 2
+    ) {
+      won = true;
+      hud.showWin();
+    }
+
+    // glow pulse
+    door.material.emissiveIntensity = 0.4 + 0.2 * Math.sin(now * 0.003);
+
+    minimap.draw();
+    renderer.render(scene, camera);
+    requestAnimationFrame(tick);
   }
-
-  // Door logic
-  // Only open door when player is near and has all keys
-  if (
-    !doorOpen &&
-    player.hasAllKeys(NUM_KEYS) &&
-    Math.abs(camera.position.x - door.position.x) < DOOR_W / 2 &&
-    Math.abs(camera.position.z - door.position.z) < MAZE.CELL / 2
-  ) {
-    doorOpen = true;
-  }
-  if (doorOpen && door.position.y < MAZE.WALL_H + DOOR_H / 2) {
-    doorAnimY += dt * MAZE.WALL_H * 2;
-    door.position.y = Math.min(doorAnimY, MAZE.WALL_H + DOOR_H / 2);
-  }
-
-  // Win logic: walk through open door
-  if (
-    !won &&
-    doorOpen &&
-    Math.abs(camera.position.x - door.position.x) < DOOR_W / 2 &&
-    Math.abs(camera.position.z - door.position.z) < MAZE.CELL / 2
-  ) {
-    won = true;
-    hud.showWin();
-  }
-
-  // glow pulse
-  door.material.emissiveIntensity = 0.4 + 0.2 * Math.sin(now * 0.003);
-
-  minimap.draw();
-  renderer.render(scene, camera);
   requestAnimationFrame(tick);
 }
-requestAnimationFrame(tick);
+
+// Start
+startGame();

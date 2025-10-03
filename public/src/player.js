@@ -20,11 +20,16 @@ export class Player {
     this.health = 100;
     this.hud = hud;
     this.keys = new Set();
+    this.collectedKeys = new Set();
 
     this.MAX_SPEED = MOVE.MAX_SPEED;
     this.ACCEL = MOVE.ACCEL;
 
-    this.collectedKeys = new Set();
+    // head bobbing state
+    this.bobPhase = 0;       // oscillation phase
+    this.bobOffsetY = 0;    // current vertical bob offset applied to camera
+    this.bobAmplitude = 0.08; // max vertical bob in meters
+    this.bobSpeed = 10;     // base bob speed multiplier
 
     addEventListener("keydown", (e) => {
       const k = e.key.toLowerCase();
@@ -132,6 +137,21 @@ export class Player {
       this.vel.y *= this.MAX_SPEED / sp2;
     }
 
+    // head bobbing: compute a smooth vertical offset when moving on the ground
+    const moveSpeed = Math.hypot(this.vel.x, this.vel.y);
+    const speedRatio = Math.min(1, moveSpeed / this.MAX_SPEED);
+    const isMoving = speedRatio > 0.05 && this.grounded;
+    if (isMoving) {
+      this.bobPhase += dt * this.bobSpeed * (0.8 + speedRatio);
+    } else {
+      // slowly decay phase to avoid abrupt jumps when resuming
+      this.bobPhase += dt * this.bobSpeed * 0.0;
+    }
+    const targetBob = isMoving ? Math.sin(this.bobPhase) * this.bobAmplitude * (0.5 + speedRatio) : 0;
+    // smooth interpolation towards target
+    const lerpT = Math.min(1, 10 * dt);
+    this.bobOffsetY += (targetBob - this.bobOffsetY) * lerpT;
+
     // propose move
     let nx = this.camera.position.x + this.vel.x * dt;
     let nz = this.camera.position.z + this.vel.y * dt;
@@ -161,6 +181,6 @@ export class Player {
       this.grounded = true;
     } else this.grounded = false;
 
-    this.camera.position.set(nx, WORLD.PLAYER_BASE_H + this.yOffset, nz);
+    this.camera.position.set(nx, WORLD.PLAYER_BASE_H + this.yOffset + this.bobOffsetY, nz);
   }
 }

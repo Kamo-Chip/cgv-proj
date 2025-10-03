@@ -1,5 +1,6 @@
 // src/powerups.js
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { POWERUP, MOVE } from "./constants.js";
 import { gridToWorld } from "./utils.js";
 
@@ -103,145 +104,87 @@ class Powerup {
     scene.add(this.mesh);
   }
   _createMesh(type, gx, gy) {
+    // Use GLTF models instead of procedurally generated geometry.
+    // A placeholder mesh is added synchronously so the scene has something
+    // immediately; the real GLB is loaded asynchronously and replaces it.
     const kind =
       Object.keys(PowerupTypes).find((k) => PowerupTypes[k] === type) ||
       type.name ||
       "generic";
     const w = gridToWorld(gx, gy);
 
-    // Shared material base
-    const baseMat = new THREE.MeshStandardMaterial({
+    const group = new THREE.Group();
+    group.position.set(w.x, 0.6, w.z);
+    group.userData.kind = kind;
+
+    // simple translucent placeholder while model loads
+    const placeholderMat = new THREE.MeshStandardMaterial({
       color: type.color,
       emissive: type.emissive,
       emissiveIntensity: 0.6,
-      roughness: 0.3,
-      metalness: 0.2,
+      roughness: 0.5,
+      metalness: 0.1,
+      transparent: true,
+      opacity: 0.85,
     });
+    const placeholder = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.22, 1),
+      placeholderMat
+    );
+    placeholder.castShadow = true;
+    placeholder.name = "placeholder";
+    group.add(placeholder);
 
-    const group = new THREE.Group();
+    // reuse a single GLTFLoader instance per Powerup class
+    const loader =
+      Powerup._gltfLoader || (Powerup._gltfLoader = new GLTFLoader());
 
-    if (kind === "jump") {
-      // A little core with an upward arrow to suggest jump
-      const coreGeo = new THREE.SphereGeometry(0.18, 16, 12);
-      const core = new THREE.Mesh(coreGeo, baseMat);
-      core.castShadow = true;
-      group.add(core);
+    // Expect models at /models/powerups/<kind>.glb (place models in public/models/powerups)
+    const modelPath = `./models/powerups/${kind}.glb`;
 
-      const shaftGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.42, 12);
-      const shaft = new THREE.Mesh(shaftGeo, baseMat);
-      shaft.position.y = 0.28;
-      shaft.castShadow = true;
-      group.add(shaft);
+    loader.load(
+      modelPath,
+      (gltf) => {
+        try {
+          const model = gltf.scene.clone();
 
-      const tipGeo = new THREE.ConeGeometry(0.08, 0.18, 12);
-      const tip = new THREE.Mesh(tipGeo, baseMat);
-      tip.position.y = 0.56;
-      tip.castShadow = true;
-      group.add(tip);
-    } else if (kind === "freeze") {
-      // Crystal-like octahedron with spikes
-      const coreGeo = new THREE.OctahedronGeometry(0.22, 0);
-      const core = new THREE.Mesh(coreGeo, baseMat);
-      core.castShadow = true;
-      group.add(core);
+          // Normalize model size to fit roughly the same footprint as previous geometry
+          const bbox = new THREE.Box3().setFromObject(model);
+          const size = new THREE.Vector3();
+          bbox.getSize(size);
+          const maxDim = Math.max(size.x, size.y, size.z);
+          const targetSize = 0.8; // approximate desired largest dimension
+          if (maxDim > 0) {
+            const s = targetSize / maxDim;
+            model.scale.setScalar(s);
+          }
 
-      const spikeGeo = new THREE.ConeGeometry(0.06, 0.18, 12);
-      const spikeDirs = [
-        new THREE.Vector3(1, 0, 0),
-        new THREE.Vector3(-1, 0, 0),
-        new THREE.Vector3(0, 1, 0),
-        new THREE.Vector3(0, -1, 0),
-        new THREE.Vector3(0, 0, 1),
-        new THREE.Vector3(0, 0, -1),
-      ];
-      for (const dir of spikeDirs) {
-        const s = new THREE.Mesh(spikeGeo, baseMat);
-        // orient cone so its tip points away from center
-        s.lookAt(dir);
-        // move it slightly away from center
-        s.position.copy(dir.clone().multiplyScalar(0.36));
-        s.castShadow = true;
-        group.add(s);
+          // center model on group's origin
+          bbox.setFromObject(model);
+          const center = bbox.getCenter(new THREE.Vector3());
+          model.position.sub(center);
+
+          model.traverse((n) => {
+            if (n.isMesh) {
+              n.castShadow = true;
+              n.receiveShadow = true;
+            }
+          });
+
+          // replace placeholder with loaded model
+          group.remove(placeholder);
+          group.add(model);
+        } catch (e) {
+          console.warn("Error processing GLTF for powerup:", modelPath, e);
+        }
+      },
+      undefined,
+      (err) => {
+        // If model load fails, leave placeholder and warn
+        console.warn("Failed to load powerup model:", modelPath, err);
       }
-    } else if (kind === "speed") {
-      // Sleek ring with winglets to suggest motion
-      const torusGeo = new THREE.TorusGeometry(0.22, 0.06, 12, 48);
-      const torus = new THREE.Mesh(torusGeo, baseMat);
-      torus.rotation.x = Math.PI / 2;
-      torus.castShadow = true;
-      group.add(torus);
+    );
 
-      const wingGeo = new THREE.BoxGeometry(0.42, 0.06, 0.12);
-      for (let i = 0; i < 2; i++) {
-        const wing = new THREE.Mesh(wingGeo, baseMat);
-        wing.position.x = i === 0 ? 0.28 : -0.28;
-        wing.position.y = 0.05;
-        wing.rotation.z = i === 0 ? -0.35 : 0.35;
-        wing.castShadow = true;
-        group.add(wing);
-      }
-    } else if (kind === "health") {
-      // Heart-shaped 3D model
-      const heartShape = new THREE.Shape();
-      heartShape.moveTo(0, -0.12);
-      heartShape.bezierCurveTo(0.06, -0.28, 0.28, -0.28, 0.28, -0.04);
-      heartShape.bezierCurveTo(0.28, 0.14, 0.14, 0.26, 0, 0.36);
-      heartShape.bezierCurveTo(-0.14, 0.26, -0.28, 0.14, -0.28, -0.04);
-      heartShape.bezierCurveTo(-0.28, -0.28, -0.06, -0.28, 0, -0.12);
-
-      const extrudeSettings = {
-        depth: 0.12,
-        bevelEnabled: true,
-        bevelThickness: 0.02,
-        bevelSize: 0.02,
-        bevelSegments: 3,
-      };
-      const heartGeo = new THREE.ExtrudeGeometry(heartShape, extrudeSettings);
-      if (heartGeo.center) {
-        heartGeo.center();
-      } else {
-        heartGeo.computeBoundingBox();
-        const c = heartGeo.boundingBox.getCenter(new THREE.Vector3()).negate();
-        heartGeo.translate(c.x, c.y, c.z);
-      }
-
-      const heartMat = new THREE.MeshStandardMaterial({
-        color: type.color,
-        emissive: type.emissive,
-        emissiveIntensity: 0.9,
-        roughness: 0.35,
-        metalness: 0.05,
-      });
-      const heart = new THREE.Mesh(heartGeo, heartMat);
-      heart.castShadow = true;
-      // ensure top of heart points up and sit slightly above ground
-      heart.rotation.x = Math.PI; // flip so top aligns correctly
-      heart.position.y = 0.02;
-      heart.scale.setScalar(1.0);
-      group.add(heart);
-
-      // subtle glow ring underneath
-      const glowGeo = new THREE.RingGeometry(0.28, 0.36, 32);
-      const glowMat = new THREE.MeshBasicMaterial({
-        color: type.color,
-        transparent: true,
-        opacity: 0.18,
-        side: THREE.DoubleSide,
-      });
-      const glow = new THREE.Mesh(glowGeo, glowMat);
-      glow.rotation.x = -Math.PI / 2;
-      glow.position.y = -0.06;
-      group.add(glow);
-    } else {
-      // fallback: torus knot like before
-      const geo = new THREE.TorusKnotGeometry(0.3, 0.09, 64, 8);
-      const fallback = new THREE.Mesh(geo, baseMat);
-      fallback.castShadow = true;
-      group.add(fallback);
-    }
-
-    // Position the whole group in world space
-    group.position.set(w.x, 0.6, w.z);
     return group;
   }
 }

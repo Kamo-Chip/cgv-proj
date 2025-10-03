@@ -1,5 +1,6 @@
 // src/weapons.js
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { WEAPON } from "./constants.js";
 import { gridToWorld, worldToGrid } from "./utils.js";
 
@@ -43,92 +44,75 @@ class WorldWeapon {
     scene.add(this.mesh);
   }
   _createMesh(type, gx, gy) {
+    // Create a placeholder Group positioned like previous items so other systems
+    // can interact with it right away. The GLTF model will be loaded
+    // asynchronously and inserted into this group when available.
     const w = gridToWorld(gx, gy);
     const group = new THREE.Group();
-
-    // Shared material for weapon body parts using the type colors
-    const bodyMat = new THREE.MeshStandardMaterial({
-      color: type.color,
-      emissive: type.emissive,
-      roughness: 0.4,
-      roughness: 0.4,
-      metalness: 0.2,
-    });
-
-    if (type.id === "pistol") {
-      // Simple stylized pistol made from boxes + a small barrel cylinder
-      const bodyGeo = new THREE.BoxGeometry(0.36, 0.12, 0.16);
-      const body = new THREE.Mesh(bodyGeo, bodyMat);
-      body.castShadow = true;
-      body.position.set(0, 0.02, 0);
-      group.add(body);
-
-      const barrelGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.36, 10);
-      const barrel = new THREE.Mesh(barrelGeo, bodyMat);
-      barrel.castShadow = true;
-      barrel.rotation.z = Math.PI / 2;
-      barrel.position.set(0.18, 0.02, 0);
-      group.add(barrel);
-
-      const gripGeo = new THREE.BoxGeometry(0.10, 0.18, 0.06);
-      const grip = new THREE.Mesh(gripGeo, bodyMat);
-      grip.castShadow = true;
-      grip.position.set(-0.12, -0.06, 0);
-      grip.rotation.z = -Math.PI / 12;
-      group.add(grip);
-
-      // small sight detail
-      const sightGeo = new THREE.BoxGeometry(0.06, 0.03, 0.02);
-      const sight = new THREE.Mesh(sightGeo, bodyMat);
-      sight.castShadow = true;
-      sight.position.set(0.05, 0.07, 0);
-      group.add(sight);
-    } else if (type.id === "knife") {
-      // Knife: thin metallic blade + colored handle
-      const bladeMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, emissive: 0xdddddd, roughness: 0.18, metalness: 0.9 });
-      const bladeGeo = new THREE.BoxGeometry(0.04, 0.02, 0.72);
-      const blade = new THREE.Mesh(bladeGeo, bladeMat);
-      blade.castShadow = true;
-      blade.position.set(0, 0.02, 0);
-      group.add(blade);
-
-      // tapered tip using a cone
-      const tipGeo = new THREE.ConeGeometry(0.02, 0.08, 8);
-      const tip = new THREE.Mesh(tipGeo, bladeMat);
-      tip.castShadow = true;
-      tip.rotation.x = Math.PI / 2;
-      tip.position.set(0, 0.02, 0.36);
-      group.add(tip);
-
-      // handle
-      const handleMat = new THREE.MeshStandardMaterial({ color: type.color, emissive: type.emissive, roughness: 0.6, metalness: 0.15 });
-      const handleGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.16, 10);
-      const handle = new THREE.Mesh(handleGeo, handleMat);
-      handle.castShadow = true;
-      handle.rotation.z = Math.PI / 2;
-      handle.position.set(-0.18, -0.03, 0);
-      group.add(handle);
-    } else {
-      // fallback: keep the original simple cylinder so unknown types still work
-      const geo = new THREE.CylinderGeometry(0.14, 0.14, 0.22, 12);
-      const mat = new THREE.MeshStandardMaterial({
-        color: type.color,
-        emissive: type.emissive,
-        emissiveIntensity: 0.6,
-        roughness: 0.4,
-        metalness: 0.1,
-      });
-      const m = new THREE.Mesh(geo, mat);
-      m.castShadow = true;
-      m.rotation.x = Math.PI / 2;
-      m.position.set(w.x, 0.45, w.z);
-      return m;
-    }
-
-    // position combined model on the ground similar to previous item
     group.position.set(w.x, 0.45, w.z);
-    // lay flat so orientation matches previous objects
-    group.rotation.x = Math.PI / 2;
+    // keep the same base orientation as before (lay flat)
+    group.rotation.x = 0;
+
+    // Attempt to load a GLTF for this weapon. Expect files at ./models/weapons/<id>.glb
+    const loader = new GLTFLoader();
+    const url = `./models/weapons/${type.id}.glb`;
+
+    loader.load(
+      url,
+      (gltf) => {
+        const model = gltf.scene || gltf.scenes?.[0];
+        if (!model) {
+          console.warn("GLTF has no scene:", url);
+          return;
+        }
+
+        // make sure the model casts/receives shadows and is centered in the group
+        model.traverse((n) => {
+          if (n.isMesh) {
+            n.castShadow = true;
+            n.receiveShadow = true;
+            // ensure the weapon material has decent defaults if none provided
+            if (!n.material) n.material = new THREE.MeshStandardMaterial({ color: type.color, emissive: type.emissive });
+          }
+        });
+
+        // Apply a modest default scale so most models fit in the scene. Projects may
+        // want to tweak per-model scale and orientation if needed.
+        const DEFAULT_SCALE = 1.0;
+        model.scale.setScalar(DEFAULT_SCALE);
+
+        // Place the loaded model at the group's origin so existing code that
+        // rotates/positions the group continues to work.
+        model.position.set(0, 0, 0);
+
+        // Some models may be authored with different forward/up axes. If you notice
+        // orientation issues you can adjust model.rotation here (per type) e.g.
+        // if (type.id === 'pistol') model.rotation.z = Math.PI/2;
+
+        // Add the model to the placeholder group
+        group.add(model);
+      },
+      undefined,
+      (err) => {
+        // On error, fall back to a simple cylinder so the weapon is still visible.
+        console.warn("Failed to load weapon GLTF:", url, err);
+        const geo = new THREE.CylinderGeometry(0.14, 0.14, 0.22, 12);
+        const mat = new THREE.MeshStandardMaterial({
+          color: type.color,
+          emissive: type.emissive,
+          emissiveIntensity: 0.6,
+          roughness: 0.4,
+          metalness: 0.1,
+        });
+        const m = new THREE.Mesh(geo, mat);
+        m.castShadow = true;
+        // match base orientation used for this type (pistol is upright)
+        m.rotation.x = type.id === 'pistol' ? 0 : Math.PI / 2;
+        m.position.set(0, 0, 0);
+        group.add(m);
+      }
+    );
+
     return group;
   }
 }
@@ -292,7 +276,8 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
     // animate world weapons
     for (const w of weapons) {
       if (!w.taken) {
-        w.mesh.rotation.z += dt * 1.2;
+        // rotate around vertical axis so items spin upright
+        w.mesh.rotation.y += dt * 1.2;
         w.mesh.position.y = 0.45 + Math.sin(performance.now() * 0.003 + w.gx * 13.3) * 0.05;
       }
     }

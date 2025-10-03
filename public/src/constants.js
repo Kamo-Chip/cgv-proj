@@ -51,7 +51,7 @@ export const POWERUP = {
 };
 
 export const WEAPON = {
-  COUNT: 6,
+  COUNT: 5,
   PICKUP_RADIUS: 1.0,
   SPAWN_MIN_DIST: MAZE.CELL * 4,
   SEPARATION_DIST: MAZE.CELL * 2.2,
