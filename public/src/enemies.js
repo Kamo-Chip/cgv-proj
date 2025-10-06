@@ -1,7 +1,36 @@
 // src/enemies.js
 import * as THREE from "three";
 import { ENEMY, COMBAT } from "./constants.js";
-import { gridToWorld, worldToGrid } from "./utils.js";
+import { gridToWorld, worldToGrid, loadModel } from "./utils.js";
+
+// near top: you already have this line
+export let ENEMY_MODEL = null;
+
+// load model using your utils.loadModel (non-blocking / single place)
+export async function initEnemyModel() {
+  if (ENEMY_MODEL) return; // already loaded
+  try {
+    // loadModel should return the gltf.scene (implementation in utils.js)
+    const model = await loadModel("./models/items/enemy.glb");
+    // keep the model root as the cache
+    ENEMY_MODEL = model;
+    // a default scale (tweak if needed)
+    ENEMY_MODEL.scale.setScalar(0.8);
+    // ensure model meshes cast/receive shadows & have default materials
+    ENEMY_MODEL.traverse((n) => {
+      if (n.isMesh) {
+        n.castShadow = true;
+        n.receiveShadow = true;
+        if (!n.material)
+          n.material = new THREE.MeshStandardMaterial({ color: 0xff5252 });
+      }
+    });
+    console.log("ENEMY_MODEL loaded");
+  } catch (err) {
+    console.error("initEnemyModel failed:", err);
+    ENEMY_MODEL = null;
+  }
+}
 
 export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
   const enemies = []; // { mesh, gx, gy, path, targetIndex, vx, vz, ... }
@@ -69,6 +98,21 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     return null;
   }
 
+  // helper to safely set material props on a group/mesh (you already had similar)
+  function setMaterialProperty(object, prop, value) {
+    object.traverse((child) => {
+      if (child.isMesh && child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach((mat) => {
+            if (mat[prop] !== undefined) mat[prop] = value;
+          });
+        } else {
+          if (child.material[prop] !== undefined) child.material[prop] = value;
+        }
+      }
+    });
+  }
+
   function chooseSpawnCell() {
     const H = maze.length,
       W = maze[0].length;
@@ -99,16 +143,35 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     return options[Math.floor(Math.random() * options.length)];
   }
 
+  // spawnEnemy: use ENEMY_MODEL (note name) and scale consistently
   function spawnEnemy() {
     let cell = null;
     for (let i = 0; i < ENEMY.MAX_SPAWN_TRIES && !cell; i++)
       cell = chooseSpawnCell();
     if (!cell) return false;
+
     const w = gridToWorld(cell.x, cell.y);
-    const mesh = new THREE.Mesh(enemyGeo, baseMat.clone());
-    mesh.castShadow = true;
+
+    let mesh;
+    if (ENEMY_MODEL) {
+      mesh = ENEMY_MODEL.clone(true); // clone the group (true clones children)
+      // Optionally adjust clone's scale or orientation here
+      mesh.scale.setScalar(0.5); // your desired per-enemy scale
+    } else {
+      mesh = new THREE.Mesh(enemyGeo, baseMat.clone());
+    }
+
     mesh.position.set(w.x, 0.35, w.z);
+    // ensure shadows are enabled on meshes inside the group too (defensive)
+    mesh.traverse((n) => {
+      if (n.isMesh) {
+        n.castShadow = true;
+        n.receiveShadow = true;
+      }
+    });
+
     scene.add(mesh);
+
     enemies.push({
       mesh,
       gx: cell.x,
@@ -125,6 +188,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
       lastWaypointDist: Infinity,
       noProgressTime: 0,
     });
+
     return true;
   }
 
@@ -233,11 +297,11 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     frozen = isFrozen;
     for (const e of enemies) {
       if (isFrozen) {
-        e.mesh.material.color.set(0xcccccc);
-        e.mesh.material.emissive.set(0x555555);
+        setMaterialProperty(e.mesh, "color", new THREE.Color(0xcccccc));
+        setMaterialProperty(e.mesh, "emissive", new THREE.Color(0x555555));
       } else {
-        e.mesh.material.color.set(0xff5252);
-        e.mesh.material.emissive.set(0x550000);
+        setMaterialProperty(e.mesh, "color", new THREE.Color(0xff5252));
+        setMaterialProperty(e.mesh, "emissive", new THREE.Color(0x550000));
       }
     }
   }
@@ -247,7 +311,11 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
       // enemies don't move or deal damage
       for (const e of enemies) {
         e.hitFlash = Math.max(0, e.hitFlash - dt);
-        e.mesh.material.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
+        setMaterialProperty(
+          e.mesh,
+          "emissiveIntensity",
+          0.2 + e.hitFlash * 1.0
+        );
       }
       // prune dead & top up
       for (let i = enemies.length - 1; i >= 0; i--) {
@@ -293,7 +361,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
 
       // decay hit flash
       e.hitFlash = Math.max(0, e.hitFlash - dt);
-      e.mesh.material.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
+      setMaterialProperty(e.mesh, "emissiveIntensity", 0.2 + e.hitFlash * 1.0);
 
       // sync grid from actual pos
       const here = worldToGrid(e.mesh.position.x, e.mesh.position.z);
@@ -405,23 +473,36 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     if (fireTimer > 0) fireTimer = Math.max(0, fireTimer - dt);
   }
 
+  // performAttack: recursive raycast + find parent enemy when a child mesh is hit
   function performAttack(wallGroup) {
     if (fireTimer > 0) return;
     fireTimer = COMBAT.FIRE_COOLDOWN;
     raycaster.setFromCamera(ndcCenter, camera);
     raycaster.far = COMBAT.RAYCAST_MAX;
 
+    // pass top-level enemy meshes — intersectObjects(..., true) will recurse into children
     const aliveMeshes = enemies.filter((e) => !e.dead).map((e) => e.mesh);
-    const hitsEnemies = raycaster.intersectObjects(aliveMeshes, false);
+    // NOTE: use recursive = true so children inside GLTF groups are tested
+    const hitsEnemies = raycaster.intersectObjects(aliveMeshes, true);
     const hitsWalls = raycaster.intersectObjects([wallGroup], true);
     const wallDist = hitsWalls.length ? hitsWalls[0].distance : Infinity;
     const hit = hitsEnemies.find((h) => h.distance < wallDist);
     if (!hit) return;
 
-    const enemy = enemies.find((e) => e.mesh === hit.object);
+    // find which enemy owns the object that was hit
+    const hitObj = hit.object;
+    const enemy = enemies.find((e) => {
+      if (e.mesh === hitObj) return true;
+      // check if this enemy group contains the hit object
+      return (
+        e.mesh.getObjectById && e.mesh.getObjectById(hitObj.id) !== undefined
+      );
+    });
     if (!enemy) return;
+
     enemy.hp -= COMBAT.HIT_DAMAGE;
     enemy.hitFlash = 0.2;
+    // animate (scale the top-level group)
     enemy.mesh.scale.setScalar(1.12);
     setTimeout(() => enemy.mesh.scale.setScalar(1), 80);
     if (enemy.hp <= 0 && !enemy.dead) enemy.dead = true;
@@ -429,3 +510,4 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
 
   return { enemies, reset, update, performAttack, setFrozen };
 }
+

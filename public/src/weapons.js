@@ -13,7 +13,7 @@ const WeaponTypes = {
     color: 0x9fbfff,
     emissive: 0x2a49ff,
     kind: "projectile",
-    ammoCap: 12,
+    ammoCap: 500,
     damage: 25,
     projectileSpeed: 30,
     projectileRadius: 0.12,
@@ -40,7 +40,12 @@ class WorldWeapon {
     this.gy = gy;
     this.taken = false;
     // ammo may be Infinity or a number; default to full capacity if not provided
-    this.ammo = ammo === undefined ? (type.ammoCap === Infinity ? Infinity : type.ammoCap) : ammo;
+    this.ammo =
+      ammo === undefined
+        ? type.ammoCap === Infinity
+          ? Infinity
+          : type.ammoCap
+        : ammo;
     this.mesh = this._createMesh(type, gx, gy);
     scene.add(this.mesh);
   }
@@ -73,7 +78,11 @@ class WorldWeapon {
             n.castShadow = true;
             n.receiveShadow = true;
             // ensure the weapon material has decent defaults if none provided
-            if (!n.material) n.material = new THREE.MeshStandardMaterial({ color: type.color, emissive: type.emissive });
+            if (!n.material)
+              n.material = new THREE.MeshStandardMaterial({
+                color: type.color,
+                emissive: type.emissive,
+              });
           }
         });
 
@@ -108,7 +117,7 @@ class WorldWeapon {
         const m = new THREE.Mesh(geo, mat);
         m.castShadow = true;
         // match base orientation used for this type (pistol is upright)
-        m.rotation.x = type.id === 'pistol' ? 0 : Math.PI / 2;
+        m.rotation.x = type.id === "pistol" ? 0 : Math.PI / 2;
         m.position.set(0, 0, 0);
         group.add(m);
       }
@@ -137,7 +146,8 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
       W = maze[0].length;
     const cells = [];
     for (let y = 1; y < H - 1; y++)
-      for (let x = 1; x < W - 1; x++) if (maze[y][x] === 1) cells.push({ x, y });
+      for (let x = 1; x < W - 1; x++)
+        if (maze[y][x] === 1) cells.push({ x, y });
 
     // shuffle
     for (let i = cells.length - 1; i > 0; i--) {
@@ -151,13 +161,20 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
     const types = Object.keys(WeaponTypes);
     for (const c of cells) {
       if (placed >= WEAPON.COUNT) break;
-      const ok = chosen.every((d) => Math.abs(d.x - c.x) + Math.abs(d.y - c.y) >= minCellGap);
+      const ok = chosen.every(
+        (d) => Math.abs(d.x - c.x) + Math.abs(d.y - c.y) >= minCellGap
+      );
       if (!ok) continue;
       chosen.push(c);
       const typeName = types[placed % types.length];
       // initialize world weapon with full ammo
-      const fullAmmo = WeaponTypes[typeName].ammoCap === Infinity ? Infinity : WeaponTypes[typeName].ammoCap;
-      weapons.push(new WorldWeapon(WeaponTypes[typeName], c.x, c.y, scene, fullAmmo));
+      const fullAmmo =
+        WeaponTypes[typeName].ammoCap === Infinity
+          ? Infinity
+          : WeaponTypes[typeName].ammoCap;
+      weapons.push(
+        new WorldWeapon(WeaponTypes[typeName], c.x, c.y, scene, fullAmmo)
+      );
       placed++;
     }
   }
@@ -165,7 +182,9 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
   // Find nearest world weapon within pickup radius and roughly in front of camera
   function getWeaponUnderCrosshair(cameraRef) {
     if (performance.now() < ignoreHintUntil) return null;
-    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(cameraRef.quaternion);
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(
+      cameraRef.quaternion
+    );
     forward.y = 0;
     forward.normalize();
     let best = null;
@@ -191,7 +210,13 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
     if (!equipped.weapon) return;
     const here = worldToGrid(camera.position.x, camera.position.z);
     // preserve remaining ammo on drop
-    const dropped = new WorldWeapon(equipped.weapon, here.gx, here.gy, scene, equipped.ammo);
+    const dropped = new WorldWeapon(
+      equipped.weapon,
+      here.gx,
+      here.gy,
+      scene,
+      equipped.ammo
+    );
     weapons.push(dropped);
     equipped.weapon = null;
     equipped.ammo = 0;
@@ -218,11 +243,18 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
         weapons.splice(found.index, 1);
         equipped.weapon = w.type;
         // restore ammo from the world weapon (preserves partial ammo)
-        equipped.ammo = w.ammo === undefined ? (w.type.ammoCap === Infinity ? Infinity : w.type.ammoCap) : w.ammo;
+        equipped.ammo =
+          w.ammo === undefined
+            ? w.type.ammoCap === Infinity
+              ? Infinity
+              : w.type.ammoCap
+            : w.ammo;
         ignoreHintUntil = performance.now() + 300;
         if (hud?.updateWeapon) hud.updateWeapon(equipped);
-        try { audio.play(`${w.type.id}_pick`, { volume: 0.9 }); } catch (e) {
-            console.error("Failed to play pick sound:", e);
+        try {
+          audio.play(`${w.type.id}_pick`, { volume: 0.9 });
+        } catch (e) {
+          console.error("Failed to play pick sound:", e);
         }
       } else {
         // already have a weapon: drop current at player's position (do NOT auto-equip the targeted one)
@@ -244,16 +276,28 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
       if (equipped.ammo <= 0) return false; // no ammo => fall back to unarmed attack
       // spawn projectile
       const pos = camera.position.clone();
-      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+      const dir = new THREE.Vector3(0, 0, -1)
+        .applyQuaternion(camera.quaternion)
+        .normalize();
       const spawn = pos.clone().add(dir.clone().multiplyScalar(0.6));
       const geo = new THREE.SphereGeometry(wt.projectileRadius, 8, 8);
-      const mat = new THREE.MeshStandardMaterial({ color: wt.color, emissive: wt.emissive });
+      const mat = new THREE.MeshStandardMaterial({
+        color: wt.color,
+        emissive: wt.emissive,
+      });
       const m = new THREE.Mesh(geo, mat);
       m.castShadow = true;
       m.position.copy(spawn);
       scene.add(m);
-      projectiles.push({ mesh: m, vel: dir.clone().multiplyScalar(wt.projectileSpeed), life: wt.projectileLife, dmg: wt.damage, type: wt });
-      if (equipped.ammo !== Infinity) equipped.ammo = Math.max(0, equipped.ammo - 1);
+      projectiles.push({
+        mesh: m,
+        vel: dir.clone().multiplyScalar(wt.projectileSpeed),
+        life: wt.projectileLife,
+        dmg: wt.damage,
+        type: wt,
+      });
+      if (equipped.ammo !== Infinity)
+        equipped.ammo = Math.max(0, equipped.ammo - 1);
       if (hud?.updateWeapon) hud.updateWeapon(equipped);
       return true;
     } else if (wt.kind === "melee") {
@@ -282,7 +326,8 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
       if (!w.taken) {
         // rotate around vertical axis so items spin upright
         w.mesh.rotation.y += dt * 1.2;
-        w.mesh.position.y = 0.45 + Math.sin(performance.now() * 0.003 + w.gx * 13.3) * 0.05;
+        w.mesh.position.y =
+          0.45 + Math.sin(performance.now() * 0.003 + w.gx * 13.3) * 0.05;
       }
     }
 
@@ -291,7 +336,9 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
     const found = getWeaponUnderCrosshair(cameraRef);
     if (hint) {
       if (found && found.dist <= WEAPON.PICKUP_RADIUS) {
-        hint.textContent = equipped.weapon ? "Drop Weapon (E)" : "Pick Up Weapon (E)";
+        hint.textContent = equipped.weapon
+          ? "Drop Weapon (E)"
+          : "Pick Up Weapon (E)";
         hint.classList.add("show");
       } else {
         hint.classList.remove("show");
@@ -310,11 +357,21 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
       ray.far = travel.length();
 
       // enemies
-      const aliveMeshes = enemiesCtl.enemies.filter((e) => !e.dead).map((e) => e.mesh);
-      const hitE = ray.intersectObjects(aliveMeshes, false);
+      const aliveMeshes = enemiesCtl.enemies
+        .filter((e) => !e.dead)
+        .map((e) => e.mesh);
+      const hitE = ray.intersectObjects(aliveMeshes, true);
+
       if (hitE.length) {
         const hit = hitE[0];
-        const enemy = enemiesCtl.enemies.find((ee) => ee.mesh === hit.object);
+
+        // find the top-level enemy that owns this hit mesh
+        const enemy = enemiesCtl.enemies.find((ee) => {
+          if (ee.mesh === hit.object) return true;
+          // check if this enemy group contains the hit object
+          return ee.mesh.getObjectById && ee.mesh.getObjectById(hit.object.id);
+        });
+
         if (enemy) {
           enemy.hp -= p.dmg;
           enemy.hitFlash = 0.2;
@@ -322,6 +379,7 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
           setTimeout(() => enemy.mesh.scale.setScalar(1), 80);
           if (enemy.hp <= 0 && !enemy.dead) enemy.dead = true;
         }
+
         // remove projectile
         scene.remove(p.mesh);
         projectiles.splice(i, 1);
@@ -337,7 +395,10 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
         const cz = Math.max(wa.min.z, Math.min(next.z, wa.max.z));
         const ddx = next.x - cx;
         const ddz = next.z - cz;
-        if (ddx * ddx + ddz * ddz < (p.type.projectileRadius || 0.12) * (p.type.projectileRadius || 0.12)) {
+        if (
+          ddx * ddx + ddz * ddz <
+          (p.type.projectileRadius || 0.12) * (p.type.projectileRadius || 0.12)
+        ) {
           hitWall = true;
           break;
         }

@@ -1,3 +1,4 @@
+
 import * as THREE from "three";
 import { createScene } from "./scene.js";
 import { createLookControls } from "./controls.js";
@@ -17,6 +18,7 @@ import { initWeapons } from "./weapons.js";
 import { gridToWorld } from "./utils.js";
 import { MAZE } from "./constants.js";
 import { AudioManager, audio } from "./audio.js";
+import { initEnemyModel } from "./enemies.js";
 
 const { scene, renderer, camera } = createScene();
 const hud = createHUD();
@@ -224,6 +226,7 @@ function checkKeyCollection() {
 
 // Start (ensure keys are loaded before animation)
 async function startGame() {
+  await initEnemyModel(); 
   await resetGame();
 
   // Animate
