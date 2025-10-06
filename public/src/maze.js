@@ -4,6 +4,9 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MAZE } from "./constants.js";
 import { gridToWorld } from "./utils.js";
 
+// module-level incremental id to give each spawned key a stable unique id
+let _keyInstanceId = 0;
+
 export function generateMaze() {
   const maze = Array.from({ length: MAZE.H }, () => Array(MAZE.W).fill(0));
 
@@ -132,8 +135,14 @@ export async function buildKeys(
       const mesh = new THREE.Mesh(keyGeo, keyMat);
       mesh.position.set(w.x, MAZE.CELL * 0.5, w.z);
       mesh.castShadow = mesh.receiveShadow = true;
+
+      // assign a stable unique id for this instance and store it on the mesh
+      const id = _keyInstanceId++;
+      mesh.userData = mesh.userData || {};
+      mesh.userData.keyId = id;
+
       scene.add(mesh);
-      keyMeshes.push({ mesh, x: key.x, y: key.y });
+      keyMeshes.push({ mesh, x: key.x, y: key.y, id });
     }
 
     return keyMeshes;
@@ -159,8 +168,13 @@ export async function buildKeys(
       }
     });
 
+    // assign a stable unique id for this instance and store it on the root object
+    const id = _keyInstanceId++;
+    instance.userData = instance.userData || {};
+    instance.userData.keyId = id;
+
     scene.add(instance);
-    keyMeshes.push({ mesh: instance, x: key.x, y: key.y });
+    keyMeshes.push({ mesh: instance, x: key.x, y: key.y, id });
   }
 
   return keyMeshes;

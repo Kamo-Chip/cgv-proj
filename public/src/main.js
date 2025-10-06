@@ -16,10 +16,54 @@ import { initPowerups } from "./powerups.js";
 import { initWeapons } from "./weapons.js";
 import { gridToWorld } from "./utils.js";
 import { MAZE } from "./constants.js";
+import { AudioManager, audio } from "./audio.js";
 
 const { scene, renderer, camera } = createScene();
 const hud = createHUD();
+// Create look controls (pointer lock + look state) — required by Player and other systems
 const { look, lockPointer } = createLookControls(renderer, camera);
+
+// Initialize audio (do not resume automatically; wait for user gesture)
+// We'll load sounds but not start the AudioContext until user interaction.
+(async () => {
+  try {
+    await audio.loadSounds({
+      pistol_fire: "./sounds/pistol_fire.wav",
+      pistol_pick: "./sounds/pistol_pick.wav",
+      powerup_pick: "./sounds/powerup_pick.wav",
+      knife_pick: "./sounds/knife_pick.wav",
+    });
+  } catch (e) {
+    console.warn("Audio load failed (ok for dev):", e);
+  }
+})();
+
+// Hook HUD settings controls to audio manager
+hud.onMasterVol((v) => audio.setMasterVolume(v));
+hud.onSfxVol((v) => audio.setSfxVolume(v));
+hud.onMusicVol((v) => audio.setMusicVolume(v));
+hud.onToggleAudio((enabled) => audio.toggleEnabled(enabled));
+
+if (hud.onCloseSettings) hud.onCloseSettings(() => hud.showSettings(false));
+
+// Ensure audio context is resumed on first user input (gesture required on many browsers)
+function onFirstGesture() {
+  audio.resume().catch(() => {});
+  // play a silent buffer to unlock audio on some mobile browsers
+  try {
+    if (audio.ctx) {
+      const s = audio.ctx.createBufferSource();
+      const buf = audio.ctx.createBuffer(1, 1, audio.ctx.sampleRate);
+      s.buffer = buf;
+      s.connect(audio.ctx.destination);
+      s.start();
+    }
+  } catch (e) {}
+  window.removeEventListener("pointerdown", onFirstGesture);
+  window.removeEventListener("keydown", onFirstGesture);
+}
+window.addEventListener("pointerdown", onFirstGesture);
+window.addEventListener("keydown", onFirstGesture);
 
 // Maze + walls
 const maze = generateMaze();
@@ -112,6 +156,11 @@ async function resetGame() {
   // Generate new keys
   keys.splice(0, keys.length, ...generateKeys(maze, NUM_KEYS));
   keyMeshes = await buildKeys(scene, keys);
+  // assign a stable id to each key mesh so removing items from the array
+  // won't change the identity used for collection checks
+  for (let idx = 0; idx < keyMeshes.length; idx++) {
+    keyMeshes[idx].id = idx;
+  }
   hud.updateKeys(0, NUM_KEYS);
   window.keyMeshes = keyMeshes;
   door.position.y = DOOR_H / 2;
@@ -123,8 +172,14 @@ async function resetGame() {
 // Pointer lock & overlays
 hud.playBtn.addEventListener("click", () => {
   hud.showStart(false);
+  hud.showSettings(false);
   lockPointer();
 });
+
+hud.settingsBtn.addEventListener("click", () => {
+  hud.showSettings(true);
+});
+
 document.addEventListener("pointerlockchange", () => {
   if (document.pointerLockElement !== renderer.domElement && !won && !lost) {
     hud.showStart(true);
@@ -140,7 +195,9 @@ addEventListener("mousedown", (e) => {
   if (document.pointerLockElement !== renderer.domElement) return;
   // first try weapon fire
   const handled = weaponsCtl.fire(enemiesCtl);
-  if (!handled) enemiesCtl.performAttack(wallGroup);
+  if (handled) {
+    audio.play("pistol_fire", { volume: 0.9 });
+  } else enemiesCtl.performAttack(wallGroup);
 });
 
 // Check key collection
@@ -151,8 +208,13 @@ function checkKeyCollection() {
       camera.position.x - k.mesh.position.x,
       camera.position.z - k.mesh.position.z
     );
-    if (dist < 0.7 && !player.collectedKeys.has(i)) {
-      player.collectKey(i);
+    // use stable id stored on the mesh object (fall back to array index if missing)
+    const keyId = typeof k.id === "number" ? k.id : i;
+    if (dist < 0.7 && !player.collectedKeys.has(keyId)) {
+      console.log("Collecting key", keyId);
+      console.log("Player keys before:", player.collectedKeys);
+      player.collectKey(keyId);
+      console.log("Player keys after:", player.collectedKeys);
       scene.remove(k.mesh);
       keyMeshes.splice(i, 1);
       hud.updateKeys(player.collectedKeys.size, NUM_KEYS);

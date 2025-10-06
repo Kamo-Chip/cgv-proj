@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { WEAPON } from "./constants.js";
 import { gridToWorld, worldToGrid } from "./utils.js";
+import { audio } from "./audio.js";
 
 // Simple registry for weapons. Extendable: add new types with their behaviour.
 const WeaponTypes = {
@@ -220,6 +221,9 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
         equipped.ammo = w.ammo === undefined ? (w.type.ammoCap === Infinity ? Infinity : w.type.ammoCap) : w.ammo;
         ignoreHintUntil = performance.now() + 300;
         if (hud?.updateWeapon) hud.updateWeapon(equipped);
+        try { audio.play(`${w.type.id}_pick`, { volume: 0.9 }); } catch (e) {
+            console.error("Failed to play pick sound:", e);
+        }
       } else {
         // already have a weapon: drop current at player's position (do NOT auto-equip the targeted one)
         dropEquipped();

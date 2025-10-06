@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { POWERUP, MOVE } from "./constants.js";
 import { gridToWorld } from "./utils.js";
+import { audio } from "./audio.js";
 
 // Registry of powerup types
 const ENEMY_FREEZE_DURATION = 10; // seconds, adjust as needed
@@ -250,6 +251,10 @@ export function initPowerups(scene, maze, enemiesCtl) {
         p.mesh.scale.setScalar(1.4);
         setTimeout(() => scene.remove(p.mesh), 80);
         activatePowerup(p.type, player);
+        // play pickup sound if audio manager loaded
+        try {
+          audio.play("powerup_pick", { volume: 0.9 });
+        } catch (e) {}
       }
     }
     // timers
