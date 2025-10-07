@@ -422,6 +422,38 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     if (!enemy) return;
     enemy.hp -= COMBAT.HIT_DAMAGE;
     enemy.hitFlash = 0.2;
+    // Inside performAttack(), after enemy.hitFlash = 0.2, add:
+    // Hit particle effect
+    const hitPos = hit.point || enemy.mesh.position.clone();
+    const particleGeo = new THREE.SphereGeometry(0.08, 6, 6);
+    const particleMat = new THREE.MeshBasicMaterial({ 
+      color: 0xff3333,
+      transparent: true,
+      opacity: 0.9
+    });
+    for (let i = 0; i < 5; i++) {
+      const particle = new THREE.Mesh(particleGeo, particleMat.clone());
+      particle.position.copy(hitPos);
+      const angle = (i / 5) * Math.PI * 2;
+      const vel = new THREE.Vector3(
+        Math.cos(angle) * 2,
+        Math.random() * 2 + 1,
+        Math.sin(angle) * 2
+      );
+      scene.add(particle);
+      // Animate particle
+      let life = 0.4;
+      const pInterval = setInterval(() => {
+        life -= 0.016;
+        particle.position.add(vel.clone().multiplyScalar(0.016));
+        vel.y -= 9.8 * 0.016; // gravity
+        particle.material.opacity = life / 0.4;
+        if (life <= 0) {
+          scene.remove(particle);
+          clearInterval(pInterval);
+        }
+      }, 16);
+    }
     enemy.mesh.scale.setScalar(1.12);
     setTimeout(() => enemy.mesh.scale.setScalar(1), 80);
     if (enemy.hp <= 0 && !enemy.dead) enemy.dead = true;

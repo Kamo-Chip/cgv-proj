@@ -23,6 +23,30 @@ const hud = createHUD();
 // Create look controls (pointer lock + look state) — required by Player and other systems
 const { look, lockPointer } = createLookControls(renderer, camera);
 
+import { createCameraShake } from "./scene.js";
+const cameraShake = createCameraShake(camera);
+
+import { createThirdPersonCamera } from "./controls.js";
+
+// Player model (the cube for third-person view)
+const playerModelGeo = new THREE.BoxGeometry(0.8, 1.8, 0.8);
+const playerModelMat = new THREE.MeshStandardMaterial({
+  color: 0xeeeeee,
+  roughness: 0.8,
+});
+const playerModel = new THREE.Mesh(playerModelGeo, playerModelMat);
+playerModel.castShadow = true;
+scene.add(playerModel);
+
+let cameraMode = "first"; // 'first' or 'third'
+let thirdPersonCam = null;
+
+// Create a separate Vector3 to hold the player's true position.
+// The Player class will update the camera's position, we'll copy it here,
+// and the third-person camera will use this as its target.
+const playerPositionForCam = new THREE.Vector3();
+thirdPersonCam = createThirdPersonCamera(camera, playerPositionForCam);
+
 // Initialize audio (do not resume automatically; wait for user gesture)
 // We'll load sounds but not start the AudioContext until user interaction.
 (async () => {
@@ -100,6 +124,8 @@ let doorAnimY = door.position.y;
 const player = new Player(camera, walls, look, hud);
 player.setHealth(100);
 player.resetToStart(1, 1, door.position);
+// Initialize our position tracker
+playerPositionForCam.copy(camera.position);
 
 // Enemies
 let lost = false,
@@ -107,6 +133,7 @@ let lost = false,
 function onPlayerDamage(dmg) {
   if (lost || won) return;
   player.setHealth(player.health - dmg);
+  cameraShake.trigger(dmg * 0.015, 8);
   if (player.health <= 0 && !lost) {
     lost = true;
     hud.showLose();
@@ -146,6 +173,8 @@ async function resetGame() {
   hud.hideLose();
   player.setHealth(100);
   player.resetToStart(1, 1, door.position);
+  // Sync position tracker on reset
+  playerPositionForCam.copy(camera.position);
   player.resetKeys();
   enemiesCtl.reset();
   powerupsCtl.reset(player);
@@ -186,6 +215,20 @@ document.addEventListener("pointerlockchange", () => {
   }
 });
 
+// Toggle camera mode with 'V' key
+addEventListener("keydown", (e) => {
+  if (e.key.toLowerCase() === "v") {
+    cameraMode = cameraMode === "first" ? "third" : "first";
+    if (cameraMode === "first") {
+      // Reset first-person camera orientation
+      camera.quaternion.setFromEuler(
+        new THREE.Euler(look.pitch, look.yaw, 0, "YXZ")
+      );
+    }
+  }
+  // ... existing keydown code (R key) ...
+});
+
 // Input: R to reset, click to shoot when locked
 addEventListener("keydown", (e) => {
   if (e.key.toLowerCase() === "r") resetGame();
@@ -193,11 +236,13 @@ addEventListener("keydown", (e) => {
 addEventListener("mousedown", (e) => {
   if (e.button !== 0) return;
   if (document.pointerLockElement !== renderer.domElement) return;
-  // first try weapon fire
   const handled = weaponsCtl.fire(enemiesCtl);
   if (handled) {
     audio.play("pistol_fire", { volume: 0.9 });
-  } else enemiesCtl.performAttack(wallGroup);
+    cameraShake.trigger(0.08, 12); // subtle shake on shot
+  } else {
+    enemiesCtl.performAttack(wallGroup);
+  }
 });
 
 // Check key collection
@@ -233,7 +278,43 @@ async function startGame() {
     last = now;
 
     if (document.pointerLockElement === renderer.domElement && !won && !lost) {
+      // Before running player logic, ensure the camera is at the player's actual position.
+      camera.position.copy(playerPositionForCam);
+      camera.quaternion.setFromEuler(
+        new THREE.Euler(look.pitch, look.yaw, 0, "YXZ")
+      );
+
+      // Now, update the player's state. This will move the camera object.
       player.update(dt);
+
+      // The camera object's position is now the player's new true position.
+      // Store this new position in our tracker.
+      playerPositionForCam.copy(camera.position);
+
+      // --- NEW: Additional collision pass for the third-person model ---
+      if (cameraMode === "third") {
+        const R = 0.4; // Half the width of the 0.8 player cube
+        let nx = playerPositionForCam.x;
+        let nz = playerPositionForCam.z;
+
+        for (const w of walls) {
+          const cx = Math.max(w.min.x, Math.min(nx, w.max.x));
+          const cz = Math.max(w.min.z, Math.min(nz, w.max.z));
+          const dx = nx - cx;
+          const dz = nz - cz;
+          const d2 = dx * dx + dz * dz;
+          if (d2 < R * R) {
+            const d = Math.sqrt(d2) || 1e-5;
+            const overlap = R - d;
+            nx += (dx / d) * overlap;
+            nz += (dz / d) * overlap;
+          }
+        }
+        playerPositionForCam.x = nx;
+        playerPositionForCam.z = nz;
+      }
+      // --- END of new collision pass ---
+
       enemiesCtl.update(dt, true);
       powerupsCtl.update(dt, player, camera);
       weaponsCtl.update(dt, player, camera, enemiesCtl);
@@ -241,8 +322,41 @@ async function startGame() {
       checkKeyCollection();
     }
 
+    // Update the visible player model to match the true player position and orientation
+    playerModel.position.copy(playerPositionForCam);
+    playerModel.position.y -= playerModel.geometry.parameters.height / 2;
+
+    // --- MODIFIED: Make player model face its movement direction ---
+    if (cameraMode === "third") {
+      const moveSpeed = player.vel.length();
+      // Only update rotation if moving to prevent snapping back to a default angle
+      if (moveSpeed > 0.01) {
+        // player.vel is a Vector2 where .x is world X and .y is world Z
+        const angle = Math.atan2(player.vel.x, player.vel.y);
+        const targetQuaternion = new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(0, angle, 0)
+        );
+        // Slerp for smooth rotation towards the target
+        playerModel.quaternion.slerp(targetQuaternion, 15 * dt);
+      }
+    } else {
+      // In first person, it's invisible, but keep it aligned with the camera just in case
+      playerModel.rotation.y = look.yaw;
+    }
+
+    // Camera mode update - AFTER player logic has determined the new position
+    if (cameraMode === "third" && thirdPersonCam) {
+      playerModel.visible = true;
+      // The third-person camera will read from playerPositionForCam and update the actual camera for rendering.
+      thirdPersonCam.update(look.yaw, walls);
+    } else {
+      // In first-person mode, the camera is the player's view.
+      playerModel.visible = false;
+      // Its position must match the final, collision-corrected player position.
+      camera.position.copy(playerPositionForCam);
+    }
+
     // Door logic
-    // Only open door when player is near and has all keys
     if (
       !doorOpen &&
       player.hasAllKeys(NUM_KEYS) &&
@@ -256,7 +370,7 @@ async function startGame() {
       door.position.y = Math.min(doorAnimY, MAZE.WALL_H + DOOR_H / 2);
     }
 
-    // Win logic: walk through open door
+    // Win logic
     if (
       !won &&
       doorOpen &&
@@ -267,10 +381,11 @@ async function startGame() {
       hud.showWin();
     }
 
-    // glow pulse
+    // Glow pulse
     door.material.emissiveIntensity = 0.4 + 0.2 * Math.sin(now * 0.003);
 
     minimap.draw();
+    cameraShake.update(dt);
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   }

@@ -241,7 +241,8 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
     if (!equipped.weapon) return false;
     const wt = equipped.weapon;
     if (wt.kind === "projectile") {
-      if (equipped.ammo <= 0) return false; // no ammo => fall back to unarmed attack
+      if (equipped.ammo <= 0) return false;
+      
       // spawn projectile
       const pos = camera.position.clone();
       const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
@@ -252,7 +253,36 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
       m.castShadow = true;
       m.position.copy(spawn);
       scene.add(m);
-      projectiles.push({ mesh: m, vel: dir.clone().multiplyScalar(wt.projectileSpeed), life: wt.projectileLife, dmg: wt.damage, type: wt });
+      projectiles.push({ 
+        mesh: m, 
+        vel: dir.clone().multiplyScalar(wt.projectileSpeed), 
+        life: wt.projectileLife, 
+        dmg: wt.damage, 
+        type: wt 
+      });
+      
+      // Muzzle flash effect
+      const flashGeo = new THREE.SphereGeometry(0.25, 8, 8);
+      const flashMat = new THREE.MeshBasicMaterial({ 
+        color: 0xffaa00, 
+        transparent: true, 
+        opacity: 0.8 
+      });
+      const flash = new THREE.Mesh(flashGeo, flashMat);
+      flash.position.copy(spawn);
+      scene.add(flash);
+      
+      // Fade out and remove flash
+      let flashLife = 0.08;
+      const flashInterval = setInterval(() => {
+        flashLife -= 0.016;
+        flash.material.opacity = flashLife / 0.08;
+        if (flashLife <= 0) {
+          scene.remove(flash);
+          clearInterval(flashInterval);
+        }
+      }, 16);
+      
       if (equipped.ammo !== Infinity) equipped.ammo = Math.max(0, equipped.ammo - 1);
       if (hud?.updateWeapon) hud.updateWeapon(equipped);
       return true;
@@ -277,6 +307,14 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
   }
 
   function update(dt, player, cameraRef, enemiesCtlRef) {
+    if (equipped.weapon && cameraRef) {
+      const time = performance.now() * 0.001;
+      const swayX = Math.sin(time * 1.2) * 0.002;
+      const swayY = Math.cos(time * 0.8) * 0.001;
+      // This would apply to a weapon model mesh if rendered in first-person
+      // For now just log or store for future 3D weapon model integration
+    }
+
     // animate world weapons
     for (const w of weapons) {
       if (!w.taken) {
