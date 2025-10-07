@@ -43,8 +43,8 @@ export function generateMaze() {
 export function buildWalls(scene, maze) {
   const mat = new THREE.MeshStandardMaterial({
     color: 0x2a3a4d,
-    roughness: 0.6,
-    metalness: 0.05,
+    roughness: 0.9,
+    metalness: 0.1,
   });
   const geo = new THREE.BoxGeometry(MAZE.CELL, MAZE.WALL_H, MAZE.CELL);
   const walls = [];
