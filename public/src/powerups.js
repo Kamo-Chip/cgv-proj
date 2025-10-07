@@ -253,7 +253,7 @@ export function initPowerups(scene, maze, enemiesCtl) {
         activatePowerup(p.type, player);
         // play pickup sound if audio manager loaded
         try {
-          audio.play("powerup_pick", { volume: 0.9 });
+          audio.play("powerup_pick", { volume: 0.5 });
         } catch (e) {}
       }
     }

@@ -115,6 +115,38 @@ export function createHUD() {
     if (playBtn) playBtn.focus();
   }
 
+  // after: const hud = createHUD();
+  const damageFlash = document.createElement("div");
+  Object.assign(damageFlash.style, {
+    position: "fixed",
+    inset: "0",
+    background: "red",
+    opacity: "0",
+    transition: "opacity 180ms ease-out",
+    pointerEvents: "none",
+    width: "100vw",
+    height: "100vh",
+    zIndex: "9999", // above HUD
+  });
+  document.body.appendChild(damageFlash);
+
+  let damageFlashTO;
+  function triggerDamageFlash(opacity = 0.7, holdMs = 80, fadeMs = 180) {
+    // restart transition if spammed
+    damageFlash.style.transition = "none";
+    damageFlash.style.opacity = "0";
+    // force reflow so the next transition applies
+    // eslint-disable-next-line no-unused-expressions
+    damageFlash.offsetHeight;
+    damageFlash.style.transition = `opacity ${fadeMs}ms ease-out`;
+
+    damageFlash.style.opacity = String(opacity);
+    clearTimeout(damageFlashTO);
+    damageFlashTO = setTimeout(() => {
+      damageFlash.style.opacity = "0";
+    }, holdMs);
+  }
+
   return {
     playBtn,
     showStart,
@@ -134,5 +166,6 @@ export function createHUD() {
     onToggleAudio,
     onCloseSettings,
     focusPlayButton,
+    triggerDamageFlash
   };
 }

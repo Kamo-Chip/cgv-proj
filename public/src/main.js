@@ -1,25 +1,26 @@
 import * as THREE from "three";
-import { createScene } from "./scene.js";
+import { audio } from "./audio.js";
+import { MAZE } from "./constants.js";
 import { createLookControls } from "./controls.js";
-import { createHUD } from "./ui.js";
+import { initEnemies } from "./enemies.js";
 import {
-  generateMaze,
+  buildKeys,
   buildWalls,
   generateKeys,
-  buildKeys,
+  generateMaze,
   updateKeys,
 } from "./maze.js";
-import { Player } from "./player.js";
 import { createMinimap } from "./minimap.js";
-import { initEnemies } from "./enemies.js";
+import { Player } from "./player.js";
 import { initPowerups } from "./powerups.js";
-import { initWeapons } from "./weapons.js";
+import { createScene } from "./scene.js";
+import { createHUD } from "./ui.js";
 import { gridToWorld } from "./utils.js";
-import { MAZE } from "./constants.js";
-import { AudioManager, audio } from "./audio.js";
+import { initWeapons } from "./weapons.js";
 
 const { scene, renderer, camera } = createScene();
 const hud = createHUD();
+
 // Create look controls (pointer lock + look state) — required by Player and other systems
 const { look, lockPointer } = createLookControls(renderer, camera);
 
@@ -28,10 +29,23 @@ const { look, lockPointer } = createLookControls(renderer, camera);
 (async () => {
   try {
     await audio.loadSounds({
-      pistol_fire: "./sounds/pistol_fire.wav",
+      pistol_attack: "./sounds/pistol_attack.wav",
       pistol_pick: "./sounds/pistol_pick.wav",
       powerup_pick: "./sounds/powerup_pick.wav",
       knife_pick: "./sounds/knife_pick.wav",
+      knife_attack: "./sounds/knife_attack.wav",
+      enemy_damage: "./sounds/enemy_damage.wav",
+      pistol_dry: "./sounds/pistol_dry.wav",
+      enemy_death: "./sounds/enemy_death.wav",
+      key_pick: "./sounds/key_pick.wav",
+      level_win: "./sounds/level_win.wav",
+      level_lose: "./sounds/level_lose.wav",
+      player_damage: "./sounds/player_damage.wav",
+      enemy_charge: "./sounds/enemy_charge.wav",
+      player_jump: "./sounds/player_jump.wav",
+      player_jump_high: "./sounds/player_jump_high.wav",
+      player_step_1: "./sounds/player_step_1.wav",
+      player_step_2: "./sounds/player_step_2.wav",
     });
   } catch (e) {
     console.warn("Audio load failed (ok for dev):", e);
@@ -106,8 +120,16 @@ let lost = false,
   won = false;
 function onPlayerDamage(dmg) {
   if (lost || won) return;
+
+  hud.triggerDamageFlash();
+
   player.setHealth(player.health - dmg);
   if (player.health <= 0 && !lost) {
+    try {
+      audio.play("level_lose", { volume: 0.9 });
+    } catch (e) {
+      console.error("Failed to play level_lose sound:", e);
+    }
     lost = true;
     hud.showLose();
   }
@@ -195,9 +217,9 @@ addEventListener("mousedown", (e) => {
   if (document.pointerLockElement !== renderer.domElement) return;
   // first try weapon fire
   const handled = weaponsCtl.fire(enemiesCtl);
-  if (handled) {
-    audio.play("pistol_fire", { volume: 0.9 });
-  } else enemiesCtl.performAttack(wallGroup);
+  if (!handled) {
+    enemiesCtl.performAttack(wallGroup);
+  }
 });
 
 // Check key collection
@@ -211,6 +233,11 @@ function checkKeyCollection() {
     // use stable id stored on the mesh object (fall back to array index if missing)
     const keyId = typeof k.id === "number" ? k.id : i;
     if (dist < 0.7 && !player.collectedKeys.has(keyId)) {
+      try {
+        audio.play("key_pick", { volume: 0.9 });
+      } catch (e) {
+        console.error("Failed to play key pick sound:", e);
+      }
       console.log("Collecting key", keyId);
       console.log("Player keys before:", player.collectedKeys);
       player.collectKey(keyId);
@@ -263,6 +290,11 @@ async function startGame() {
       Math.abs(camera.position.x - door.position.x) < DOOR_W / 2 &&
       Math.abs(camera.position.z - door.position.z) < MAZE.CELL / 2
     ) {
+      try {
+        audio.play("level_win", { volume: 0.9 });
+      } catch (e) {
+        console.error("Failed to play level_win sound:", e);
+      }
       won = true;
       hud.showWin();
     }
