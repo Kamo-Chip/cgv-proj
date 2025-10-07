@@ -20,6 +20,7 @@ export function createScene() {
     200
   );
   camera.position.set(1, WORLD.PLAYER_BASE_H, 1);
+//   scene.add(camera);
 
   // Lighting
   const hemi = new THREE.HemisphereLight(0xbfd8ff, 0x18222e, 0.9);

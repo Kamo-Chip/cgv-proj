@@ -5,8 +5,33 @@ import { gridToWorld, worldToGrid } from "./utils.js";
 import { audio } from "./audio.js";
 
 export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
+  // ---- Tunables (safe defaults; override in constants.js if you want) ----
+  const MIN_PLAYER_DIST = ENEMY.MIN_PLAYER_DIST ?? 0.9; // personal-space bubble (m)
+  const BASE_RADIUS = ENEMY.RADIUS ?? 0.35; // enemy sphere radius (m)
+  const ATTACK_RADIUS = Math.max(
+    ENEMY.ATTACK_RADIUS ?? BASE_RADIUS,
+    MIN_PLAYER_DIST + 0.02
+  );
+  const VERTICAL_ATTACK_TOL = ENEMY.VERTICAL_ATTACK_TOLERANCE ?? 0.45; // how high off the ground before you're "airborne" for damage
+
+  // Auto-calibrate player's ground eye-height at first update (or whenever we see a lower eye Y)
+  let eyeGroundBaselineY = null; // camera.y when on ground
+  function updateEyeGroundBaseline() {
+    if (eyeGroundBaselineY === null) {
+      eyeGroundBaselineY = camera.position.y;
+    } else {
+      // keep the *lowest* seen eye height as baseline (in case we started mid-air)
+      if (camera.position.y < eyeGroundBaselineY)
+        eyeGroundBaselineY = camera.position.y;
+    }
+  }
+  function playerVerticalOffsetFromGround() {
+    if (eyeGroundBaselineY === null) return 0; // before first frame, assume grounded
+    return camera.position.y - eyeGroundBaselineY; // ~0 when grounded, >0 when airborne
+  }
+
   const enemies = []; // { mesh, gx, gy, path, targetIndex, vx, vz, ... }
-  const enemyGeo = new THREE.SphereGeometry(0.35, 16, 16);
+  const enemyGeo = new THREE.SphereGeometry(BASE_RADIUS, 16, 16);
   const baseMat = new THREE.MeshStandardMaterial({
     color: 0xff5252,
     emissive: 0x550000,
@@ -21,7 +46,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
   let fireTimer = 0;
   let frozen = false;
 
-  // ---------------- RAM behaviour knobs (fallbacks if not defined in ENEMY) ----------------
+  // ---------------- RAM behaviour knobs (fallbacks if not defined in ENEMY) ---------------
   const RAM = {
     TRIGGER_DIST: ENEMY.RAM_TRIGGER_DIST ?? 1.6,
     WINDUP_TIME: ENEMY.RAM_WINDUP_TIME ?? 0.22,
@@ -30,10 +55,14 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     COOLDOWN_TIME: ENEMY.RAM_COOLDOWN_TIME ?? 0.32,
     CHARGE_SPEED: ENEMY.RAM_CHARGE_SPEED ?? ENEMY.SPEED * 2.6,
     BACKOFF_SPEED: ENEMY.RAM_BACKOFF_SPEED ?? ENEMY.SPEED * 1.7,
-    HIT_RADIUS: ENEMY.RAM_HIT_RADIUS ?? ENEMY.RADIUS + 10,
+
+    // use your normal attack radius unless you explicitly override
+    HIT_RADIUS: ENEMY.RAM_HIT_RADIUS ?? ATTACK_RADIUS,
+
     DAMAGE: ENEMY.RAM_DAMAGE ?? Math.max(ENEMY.DMG_PER_SEC * 0.6, 5),
   };
 
+  // ---------------- Pathfinding (grid BFS) ----------------
   function bfsPath(sx, sy, tx, ty) {
     if (sx === tx && sy === ty) return [{ gx: sx, gy: sy }];
     const H = maze.length,
@@ -83,6 +112,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     return null;
   }
 
+  // ---------------- Spawning ----------------
   function chooseSpawnCell() {
     const H = maze.length,
       W = maze[0].length;
@@ -121,7 +151,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     const w = gridToWorld(cell.x, cell.y);
     const mesh = new THREE.Mesh(enemyGeo, baseMat.clone());
     mesh.castShadow = true;
-    mesh.position.set(w.x, 0.35, w.z);
+    mesh.position.set(w.x, BASE_RADIUS, w.z);
     scene.add(mesh);
     enemies.push({
       mesh,
@@ -181,10 +211,23 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     return { nx, nz };
   }
 
+  // ---------------- Steering / Collision helpers ----------------
+  function keepDistanceFromPlayer(pos) {
+    const dx = pos.x - camera.position.x;
+    const dz = pos.z - camera.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d < MIN_PLAYER_DIST && d > 1e-6) {
+      const k = MIN_PLAYER_DIST / d;
+      pos.x = camera.position.x + dx * k;
+      pos.z = camera.position.z + dz * k;
+    }
+  }
+
   function resolveEnemyOverlaps() {
-    const minDist = ENEMY.RADIUS * 2;
+    const minDist = BASE_RADIUS * 2;
     const minDist2 = minDist * minDist;
     for (let iter = 0; iter < ENEMY.SEPARATION_ITERATIONS; iter++) {
+      // enemy-enemy
       for (let i = 0; i < enemies.length; i++) {
         const ei = enemies[i];
         if (ei.dead) continue;
@@ -214,13 +257,18 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
           }
         }
       }
-      // keep enemies out of walls
+      // enemy-wall
       for (const e of enemies) {
         if (e.dead) continue;
         let { nx, nz } = slideOutOfWalls(e.mesh.position.x, e.mesh.position.z);
         e.mesh.position.x = nx;
         e.mesh.position.z = nz;
       }
+    }
+    // keep them out of the player's personal space too
+    for (const e of enemies) {
+      if (e.dead) continue;
+      keepDistanceFromPlayer(e.mesh.position);
     }
   }
 
@@ -254,6 +302,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     e.mesh.position.z += Math.sin(a) * 0.02;
   }
 
+  // ---------------- Status: freeze ----------------
   function setFrozen(isFrozen) {
     frozen = isFrozen;
     for (const e of enemies) {
@@ -276,7 +325,23 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     }
   }
 
+  function enterRam(e, state, t, dirx, dirz) {
+    e.ramState = state;
+    e.ramT = t;
+    if (dirx !== undefined) {
+      e.ramDir.x = dirx;
+      e.ramDir.z = dirz;
+    }
+  }
+
+  // ---------------- Main update ----------------
   function update(dt, canDealDamage = true) {
+    // continuously learn the "ground eye height"
+    updateEyeGroundBaseline();
+
+    const airborneOffset = Math.abs(playerVerticalOffsetFromGround());
+    const canHitByHeight = airborneOffset <= VERTICAL_ATTACK_TOL;
+
     if (frozen) {
       for (const e of enemies) {
         e.hitFlash = Math.max(0, e.hitFlash - dt);
@@ -376,7 +441,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
           e.mesh.position.z = nz;
 
           // check hit once during charge
-          if (!e.ramHasHit && canDealDamage) {
+          if (!e.ramHasHit && canDealDamage && canHitByHeight) {
             const pdx = camera.position.x - e.mesh.position.x;
             const pdz = camera.position.z - e.mesh.position.z;
             if (Math.hypot(pdx, pdz) <= RAM.HIT_RADIUS) {
@@ -387,7 +452,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
               setTimeout(() => e.mesh.scale.setScalar(1), 90);
               try {
                 audio.play?.("player_damage", { volume: 0.9 });
-              } catch(e) {
+              } catch (e) {
                 console.log("Failed to play player_damage sound:", e);
               }
             }
@@ -451,6 +516,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
         let nz = e.mesh.position.z + (e.vz || 0) * dt;
         ({ nx, nz } = slideOutOfWalls(nx, nz));
         e.mesh.position.set(nx, e.mesh.position.y, nz);
+        keepDistanceFromPlayer(e.mesh.position); // enforce personal space
         continue;
       }
 
@@ -486,12 +552,24 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
       ({ nx, nz } = slideOutOfWalls(nx, nz));
       e.mesh.position.x = nx;
       e.mesh.position.z = nz;
+      keepDistanceFromPlayer(e.mesh.position); // enforce personal space
     }
 
     // separation
     resolveEnemyOverlaps();
 
-    // (Removed continuous touch damage; damage happens on RAM 'charge' hit only)
+    // DAMAGE: must be close horizontally AND not airborne (by calibrated offset)
+    if (canDealDamage && canHitByHeight) {
+      for (const e of enemies) {
+        if (e.dead) continue;
+        const pdx = camera.position.x - e.mesh.position.x;
+        const pdz = camera.position.z - e.mesh.position.z;
+        const horiz = Math.hypot(pdx, pdz);
+        if (horiz <= ATTACK_RADIUS) {
+          onPlayerDamage(ENEMY.DMG_PER_SEC * dt);
+        }
+      }
+    }
 
     // prune dead & top up
     for (let i = enemies.length - 1; i >= 0; i--) {
@@ -505,6 +583,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     if (fireTimer > 0) fireTimer = Math.max(0, fireTimer - dt);
   }
 
+  // ---------------- Player attack (raycast from crosshair) ----------------
   function performAttack(wallGroup) {
     if (fireTimer > 0) return;
     fireTimer = COMBAT.FIRE_COOLDOWN;

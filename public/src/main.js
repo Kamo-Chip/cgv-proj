@@ -154,7 +154,7 @@ const minimap = createMinimap(
 );
 
 // Keys
-const NUM_KEYS = 3; // Adjustable number of keys
+const NUM_KEYS = 1; // Adjustable number of keys
 const keys = generateKeys(maze, NUM_KEYS);
 let keyMeshes = []; // populated asynchronously by buildKeys
 
