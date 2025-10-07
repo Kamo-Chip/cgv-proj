@@ -4,8 +4,29 @@ import { ENEMY, COMBAT } from "./constants.js";
 import { gridToWorld, worldToGrid } from "./utils.js";
 
 export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
+  // ---- Tunables (safe defaults; override in constants.js if you want) ----
+  const MIN_PLAYER_DIST     = ENEMY.MIN_PLAYER_DIST ?? 0.9;     // personal-space bubble (m)
+  const BASE_RADIUS         = ENEMY.RADIUS ?? 0.35;             // enemy sphere radius (m)
+  const ATTACK_RADIUS       = Math.max(ENEMY.ATTACK_RADIUS ?? BASE_RADIUS, MIN_PLAYER_DIST + 0.02);
+  const VERTICAL_ATTACK_TOL = ENEMY.VERTICAL_ATTACK_TOLERANCE ?? 0.45; // how high off the ground before you're "airborne" for damage
+
+  // Auto-calibrate player's ground eye-height at first update (or whenever we see a lower eye Y)
+  let eyeGroundBaselineY = null; // camera.y when on ground
+  function updateEyeGroundBaseline() {
+    if (eyeGroundBaselineY === null) {
+      eyeGroundBaselineY = camera.position.y;
+    } else {
+      // keep the *lowest* seen eye height as baseline (in case we started mid-air)
+      if (camera.position.y < eyeGroundBaselineY) eyeGroundBaselineY = camera.position.y;
+    }
+  }
+  function playerVerticalOffsetFromGround() {
+    if (eyeGroundBaselineY === null) return 0; // before first frame, assume grounded
+    return camera.position.y - eyeGroundBaselineY; // ~0 when grounded, >0 when airborne
+  }
+
   const enemies = []; // { mesh, gx, gy, path, targetIndex, vx, vz, ... }
-  const enemyGeo = new THREE.SphereGeometry(0.35, 16, 16);
+  const enemyGeo = new THREE.SphereGeometry(BASE_RADIUS, 16, 16);
   const baseMat = new THREE.MeshStandardMaterial({
     color: 0xff5252,
     emissive: 0x550000,
@@ -20,44 +41,29 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
   let fireTimer = 0;
   let frozen = false;
 
+  // ---------------- Pathfinding (grid BFS) ----------------
   function bfsPath(sx, sy, tx, ty) {
     if (sx === tx && sy === ty) return [{ gx: sx, gy: sy }];
-    const H = maze.length,
-      W = maze[0].length;
+    const H = maze.length, W = maze[0].length;
     const q = [[sx, sy]];
     const visited = Array.from({ length: H }, () => Array(W).fill(false));
     const prev = Array.from({ length: H }, () => Array(W).fill(null));
     visited[sy][sx] = true;
-    const dirs = [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ];
+    const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
     while (q.length) {
       const [x, y] = q.shift();
       for (const [dx, dy] of dirs) {
-        const nx = x + dx,
-          ny = y + dy;
-        if (
-          ny >= 0 &&
-          ny < H &&
-          nx >= 0 &&
-          nx < W &&
-          !visited[ny][nx] &&
-          maze[ny][nx] === 1
-        ) {
+        const nx = x + dx, ny = y + dy;
+        if (ny >= 0 && ny < H && nx >= 0 && nx < W && !visited[ny][nx] && maze[ny][nx] === 1) {
           visited[ny][nx] = true;
           prev[ny][nx] = [x, y];
           if (nx === tx && ny === ty) {
             const path = [{ gx: tx, gy: ty }];
-            let cx = tx,
-              cy = ty;
+            let cx = tx, cy = ty;
             while (prev[cy][cx]) {
               const [px, py] = prev[cy][cx];
               path.push({ gx: px, gy: py });
-              cx = px;
-              cy = py;
+              cx = px; cy = py;
             }
             path.reverse();
             return path;
@@ -69,11 +75,10 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     return null;
   }
 
+  // ---------------- Spawning ----------------
   function chooseSpawnCell() {
-    const H = maze.length,
-      W = maze[0].length;
-    const px = camera.position.x,
-      pz = camera.position.z;
+    const H = maze.length, W = maze[0].length;
+    const px = camera.position.x, pz = camera.position.z;
     const options = [];
     for (let y = 1; y < H - 1; y++) {
       for (let x = 1; x < W - 1; x++) {
@@ -83,14 +88,8 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
         if (dPlayer < ENEMY.SPAWN_MIN_DIST) continue;
         let ok = true;
         for (const e of enemies) {
-          const de = Math.hypot(
-            w.x - e.mesh.position.x,
-            w.z - e.mesh.position.z
-          );
-          if (de < ENEMY.SEPARATION_DIST) {
-            ok = false;
-            break;
-          }
+          const de = Math.hypot(w.x - e.mesh.position.x, w.z - e.mesh.position.z);
+          if (de < ENEMY.SEPARATION_DIST) { ok = false; break; }
         }
         if (ok) options.push({ x, y });
       }
@@ -101,22 +100,18 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
 
   function spawnEnemy() {
     let cell = null;
-    for (let i = 0; i < ENEMY.MAX_SPAWN_TRIES && !cell; i++)
-      cell = chooseSpawnCell();
+    for (let i = 0; i < ENEMY.MAX_SPAWN_TRIES && !cell; i++) cell = chooseSpawnCell();
     if (!cell) return false;
     const w = gridToWorld(cell.x, cell.y);
     const mesh = new THREE.Mesh(enemyGeo, baseMat.clone());
     mesh.castShadow = true;
-    mesh.position.set(w.x, 0.35, w.z);
+    mesh.position.set(w.x, BASE_RADIUS, w.z);
     scene.add(mesh);
     enemies.push({
       mesh,
-      gx: cell.x,
-      gy: cell.y,
-      path: [],
-      targetIndex: 0,
-      vx: 0,
-      vz: 0,
+      gx: cell.x, gy: cell.y,
+      path: [], targetIndex: 0,
+      vx: 0, vz: 0,
       wanderTimer: 0,
       wanderChangeInterval: 1 + Math.random() * 2,
       hp: 100,
@@ -142,10 +137,23 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     }
   }
 
+  // ---------------- Steering / Collision helpers ----------------
+  function keepDistanceFromPlayer(pos) {
+    const dx = pos.x - camera.position.x;
+    const dz = pos.z - camera.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d < MIN_PLAYER_DIST && d > 1e-6) {
+      const k = MIN_PLAYER_DIST / d;
+      pos.x = camera.position.x + dx * k;
+      pos.z = camera.position.z + dz * k;
+    }
+  }
+
   function resolveEnemyOverlaps() {
-    const minDist = ENEMY.RADIUS * 2;
+    const minDist = BASE_RADIUS * 2;
     const minDist2 = minDist * minDist;
     for (let iter = 0; iter < ENEMY.SEPARATION_ITERATIONS; iter++) {
+      // enemy-enemy
       for (let i = 0; i < enemies.length; i++) {
         const ei = enemies[i];
         if (ei.dead) continue;
@@ -154,9 +162,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
           const ej = enemies[j];
           if (ej.dead) continue;
           const pj = ej.mesh.position;
-          let dx = pj.x - pi.x,
-            dz = pj.z - pi.z,
-            d2 = dx * dx + dz * dz;
+          let dx = pj.x - pi.x, dz = pj.z - pi.z, d2 = dx * dx + dz * dz;
           if (d2 < minDist2) {
             if (d2 < 1e-8) {
               const a = Math.random() * Math.PI * 2;
@@ -166,29 +172,23 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
             }
             const d = Math.sqrt(d2);
             const overlap = (minDist - d) * 0.5 * ENEMY.PUSH_FACTOR;
-            const ux = dx / d,
-              uz = dz / d;
-            pi.x -= ux * overlap;
-            pi.z -= uz * overlap;
-            pj.x += ux * overlap;
-            pj.z += uz * overlap;
+            const ux = dx / d, uz = dz / d;
+            pi.x -= ux * overlap; pi.z -= uz * overlap;
+            pj.x += ux * overlap; pj.z += uz * overlap;
           }
         }
       }
-      // keep enemies out of walls
+      // enemy-wall
       for (const e of enemies) {
         if (e.dead) continue;
-        let nx = e.mesh.position.x,
-          nz = e.mesh.position.z;
+        let nx = e.mesh.position.x, nz = e.mesh.position.z;
         for (const w of walls) {
           const cx = Math.max(w.min.x, Math.min(nx, w.max.x));
           const cz = Math.max(w.min.z, Math.min(nz, w.max.z));
-          const ddx = nx - cx,
-            ddz = nz - cz,
-            d2 = ddx * ddx + ddz * ddz;
-          if (d2 < ENEMY.RADIUS * ENEMY.RADIUS) {
+          const ddx = nx - cx, ddz = nz - cz, d2 = ddx * ddx + ddz * ddz;
+          if (d2 < BASE_RADIUS * BASE_RADIUS) {
             const d = Math.sqrt(d2) || 1e-5;
-            const overlap = ENEMY.RADIUS - d;
+            const overlap = BASE_RADIUS - d;
             nx += (ddx / d) * overlap;
             nz += (ddz / d) * overlap;
           }
@@ -196,6 +196,11 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
         e.mesh.position.x = nx;
         e.mesh.position.z = nz;
       }
+    }
+    // keep them out of the player's personal space too
+    for (const e of enemies) {
+      if (e.dead) continue;
+      keepDistanceFromPlayer(e.mesh.position);
     }
   }
 
@@ -205,30 +210,23 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
       e.mesh.position.z - camera.position.z
     );
     if (distToPlayer > ENEMY.PATHFIND_RADIUS) {
-      e.path = [];
-      e.targetIndex = 0;
-      e.noProgressTime = 0;
-      e.lastWaypointDist = Infinity;
+      e.path = []; e.targetIndex = 0;
+      e.noProgressTime = 0; e.lastWaypointDist = Infinity;
       return;
     }
     const here = worldToGrid(e.mesh.position.x, e.mesh.position.z);
-    e.gx = here.gx;
-    e.gy = here.gy;
+    e.gx = here.gx; e.gy = here.gy;
     const path = bfsPath(e.gx, e.gy, playerGrid.gx, playerGrid.gy);
     if (path && path.length > 1) {
-      e.path = path;
-      e.targetIndex = 1;
-    } else {
-      e.path = [];
-      e.targetIndex = 0;
-    }
-    e.noProgressTime = 0;
-    e.lastWaypointDist = Infinity;
+      e.path = path; e.targetIndex = 1;
+    } else { e.path = []; e.targetIndex = 0; }
+    e.noProgressTime = 0; e.lastWaypointDist = Infinity;
     const a = Math.random() * Math.PI * 2;
     e.mesh.position.x += Math.cos(a) * 0.02;
     e.mesh.position.z += Math.sin(a) * 0.02;
   }
 
+  // ---------------- Status: freeze ----------------
   function setFrozen(isFrozen) {
     frozen = isFrozen;
     for (const e of enemies) {
@@ -242,7 +240,11 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     }
   }
 
+  // ---------------- Main update ----------------
   function update(dt, canDealDamage = true) {
+    // continuously learn the "ground eye height"
+    updateEyeGroundBaseline();
+
     if (frozen) {
       // enemies don't move or deal damage
       for (const e of enemies) {
@@ -251,13 +253,9 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
       }
       // prune dead & top up
       for (let i = enemies.length - 1; i >= 0; i--) {
-        if (enemies[i].dead) {
-          scene.remove(enemies[i].mesh);
-          enemies.splice(i, 1);
-        }
+        if (enemies[i].dead) { scene.remove(enemies[i].mesh); enemies.splice(i, 1); }
       }
       ensureQuota();
-      // cooldown tick
       if (fireTimer > 0) fireTimer = Math.max(0, fireTimer - dt);
       return;
     }
@@ -275,13 +273,9 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
         );
         if (distToPlayer <= ENEMY.PATHFIND_RADIUS) {
           const path = bfsPath(e.gx, e.gy, pg.gx, pg.gy);
-          if (path && path.length > 1) {
-            e.path = path;
-            e.targetIndex = 1;
-          }
+          if (path && path.length > 1) { e.path = path; e.targetIndex = 1; }
         } else {
-          e.path = [];
-          e.targetIndex = 0;
+          e.path = []; e.targetIndex = 0;
         }
       }
       timeSinceReplan = 0;
@@ -297,8 +291,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
 
       // sync grid from actual pos
       const here = worldToGrid(e.mesh.position.x, e.mesh.position.z);
-      e.gx = here.gx;
-      e.gy = here.gy;
+      e.gx = here.gx; e.gy = here.gy;
 
       if (!e.path || e.path.length === 0) {
         // wander
@@ -315,12 +308,10 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
         for (const w of walls) {
           const cx = Math.max(w.min.x, Math.min(nx, w.max.x));
           const cz = Math.max(w.min.z, Math.min(nz, w.max.z));
-          const ddx = nx - cx,
-            ddz = nz - cz,
-            d2 = ddx * ddx + ddz * ddz;
-          if (d2 < ENEMY.RADIUS * ENEMY.RADIUS) {
+          const ddx = nx - cx, ddz = nz - cz, d2 = ddx * ddx + ddz * ddz;
+          if (d2 < BASE_RADIUS * BASE_RADIUS) {
             const d = Math.sqrt(d2) || 1e-5;
-            const overlap = ENEMY.RADIUS - d;
+            const overlap = BASE_RADIUS - d;
             nx += (ddx / d) * overlap;
             nz += (ddz / d) * overlap;
             // simple bounce
@@ -329,13 +320,13 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
           }
         }
         e.mesh.position.set(nx, e.mesh.position.y, nz);
+        keepDistanceFromPlayer(e.mesh.position); // enforce personal space
         continue;
       }
 
       const targetCell = e.path[Math.min(e.targetIndex, e.path.length - 1)];
       const tw = gridToWorld(targetCell.gx, targetCell.gy);
-      let dx = tw.x - e.mesh.position.x,
-        dz = tw.z - e.mesh.position.z;
+      let dx = tw.x - e.mesh.position.x, dz = tw.z - e.mesh.position.z;
       const dist = Math.hypot(dx, dz);
 
       if (dist > e.lastWaypointDist - 0.001) e.noProgressTime += dt;
@@ -349,55 +340,56 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
 
       if (dist < 0.02) {
         e.mesh.position.set(tw.x, e.mesh.position.y, tw.z);
-        e.gx = targetCell.gx;
-        e.gy = targetCell.gy;
+        e.gx = targetCell.gx; e.gy = targetCell.gy;
         e.lastWaypointDist = Infinity;
         e.noProgressTime = 0;
         if (e.targetIndex < e.path.length - 1) e.targetIndex++;
         continue;
       }
 
-      dx /= dist || 1;
-      dz /= dist || 1;
+      dx /= dist || 1; dz /= dist || 1;
       let nx = e.mesh.position.x + dx * ENEMY.SPEED * dt;
       let nz = e.mesh.position.z + dz * ENEMY.SPEED * dt;
       for (const w of walls) {
         const cx = Math.max(w.min.x, Math.min(nx, w.max.x));
         const cz = Math.max(w.min.z, Math.min(nz, w.max.z));
-        const ddx = nx - cx,
-          ddz = nz - cz,
-          d2 = ddx * ddx + ddz * ddz;
-        if (d2 < ENEMY.RADIUS * ENEMY.RADIUS) {
+        const ddx = nx - cx, ddz = nz - cz, d2 = ddx * ddx + ddz * ddz;
+        if (d2 < BASE_RADIUS * BASE_RADIUS) {
           const d = Math.sqrt(d2) || 1e-5;
-          const overlap = ENEMY.RADIUS - d;
+          const overlap = BASE_RADIUS - d;
           nx += (ddx / d) * overlap;
           nz += (ddz / d) * overlap;
         }
       }
       e.mesh.position.x = nx;
       e.mesh.position.z = nz;
+      keepDistanceFromPlayer(e.mesh.position); // enforce personal space
     }
 
     // separation + touch damage
     resolveEnemyOverlaps();
 
+    // DAMAGE: must be close horizontally AND not airborne (by calibrated offset)
     if (canDealDamage) {
-      for (const e of enemies) {
-        if (e.dead) continue;
-        const pdx = camera.position.x - e.mesh.position.x;
-        const pdz = camera.position.z - e.mesh.position.z;
-        if (Math.hypot(pdx, pdz) < ENEMY.RADIUS) {
-          onPlayerDamage(ENEMY.DMG_PER_SEC * dt);
+      const airborneOffset = Math.abs(playerVerticalOffsetFromGround());
+      const canHitByHeight = airborneOffset <= VERTICAL_ATTACK_TOL;
+
+      if (canHitByHeight) {
+        for (const e of enemies) {
+          if (e.dead) continue;
+          const pdx = camera.position.x - e.mesh.position.x;
+          const pdz = camera.position.z - e.mesh.position.z;
+          const horiz = Math.hypot(pdx, pdz);
+          if (horiz <= ATTACK_RADIUS) {
+            onPlayerDamage(ENEMY.DMG_PER_SEC * dt);
+          }
         }
       }
     }
 
     // prune dead & top up
     for (let i = enemies.length - 1; i >= 0; i--) {
-      if (enemies[i].dead) {
-        scene.remove(enemies[i].mesh);
-        enemies.splice(i, 1);
-      }
+      if (enemies[i].dead) { scene.remove(enemies[i].mesh); enemies.splice(i, 1); }
     }
     ensureQuota();
 
@@ -405,6 +397,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     if (fireTimer > 0) fireTimer = Math.max(0, fireTimer - dt);
   }
 
+  // ---------------- Player attack (raycast from crosshair) ----------------
   function performAttack(wallGroup) {
     if (fireTimer > 0) return;
     fireTimer = COMBAT.FIRE_COOLDOWN;
