@@ -238,25 +238,32 @@ export function initPowerups(scene, maze, enemiesCtl) {
           0.55 + Math.sin(performance.now() * 0.003 + p.gx * 13.3) * 0.05;
       }
     }
-
-    // pickup
+    // pickup (with vertical + grounded checks)
     for (const p of powerups) {
       if (p.taken) continue;
-      const d = Math.hypot(
-        camera.position.x - p.mesh.position.x,
-        camera.position.z - p.mesh.position.z
-      );
-      if (d <= POWERUP.PICKUP_RADIUS) {
+
+      const dx = camera.position.x - p.mesh.position.x;
+      const dz = camera.position.z - p.mesh.position.z;
+      const d = Math.hypot(dx, dz);
+
+      // vertical tolerance (so you can't pick up while mid-air)
+      const VERT_TOL = POWERUP.VERTICAL_PICKUP_TOL ?? 0.6;
+
+      const playerGrounded = (player && typeof player.isGrounded === "boolean")
+        ? player.isGrounded
+        : Math.abs(camera.position.y - p.mesh.position.y) <= VERT_TOL;
+
+      const dy = Math.abs(camera.position.y - p.mesh.position.y);
+
+      if (playerGrounded && d <= POWERUP.PICKUP_RADIUS && dy <= VERT_TOL) {
         p.taken = true;
         p.mesh.scale.setScalar(1.4);
         setTimeout(() => scene.remove(p.mesh), 80);
         activatePowerup(p.type, player);
-        // play pickup sound if audio manager loaded
-        try {
-          audio.play("powerup_pick", { volume: 0.9 });
-        } catch (e) {}
+        try { audio.play("powerup_pick", { volume: 0.9 }); } catch (e) {}
       }
     }
+
     // timers
     for (let i = active.length - 1; i >= 0; i--) {
       const a = active[i];
