@@ -17,9 +17,38 @@ export function createMinimap(
   canvas.height = maze.length * TILE + PAD * 2;
   const mm = canvas.getContext("2d");
 
+  const compassState = {
+    active: false,
+    expireAt: 0,
+    durationSec: 0,
+  };
+
+  function activateCompass(duration = 4) {
+    compassState.active = true;
+    compassState.durationSec = duration;
+    compassState.expireAt = performance.now() + duration * 1000;
+  }
+
+  function clearCompass() {
+    compassState.active = false;
+    compassState.durationSec = 0;
+    compassState.expireAt = 0;
+  }
+
+  function compassActive(nowTs) {
+    if (!compassState.active) return false;
+    if (nowTs > compassState.expireAt) {
+      clearCompass();
+      return false;
+    }
+    return true;
+  }
+
   function draw() {
     const width = canvas.width,
       height = canvas.height;
+    const now = performance.now();
+
     mm.clearRect(0, 0, width, height);
     mm.fillStyle = "rgba(10,14,20,0.95)";
     mm.fillRect(0, 0, width, height);
@@ -61,6 +90,47 @@ export function createMinimap(
       mm.fillRect(gx, gy, TILE - 4, TILE - 4);
     }
 
+    const hasCompassHint = compassActive(now);
+    if (hasCompassHint) {
+      const dirX = gcx - px;
+      const dirY = gcy - py;
+      const len = Math.hypot(dirX, dirY) || 1;
+      const normX = dirX / len;
+      const normY = dirY / len;
+      const arrowLen = Math.min(R - 6, len);
+      const endX = px + normX * arrowLen;
+      const endY = py + normY * arrowLen;
+
+      mm.strokeStyle = "rgba(255,244,122,0.92)";
+      mm.lineWidth = Math.max(3.5, TILE * 0.6);
+      mm.beginPath();
+      mm.moveTo(px, py);
+      mm.lineTo(endX, endY);
+      mm.stroke();
+
+      const head = 10;
+      mm.fillStyle = "rgba(255,244,122,0.92)";
+      mm.beginPath();
+      mm.moveTo(endX, endY);
+      mm.lineTo(
+        endX - normX * head - normY * head * 0.6,
+        endY - normY * head + normX * head * 0.6
+      );
+      mm.lineTo(
+        endX - normX * head + normY * head * 0.6,
+        endY - normY * head - normX * head * 0.6
+      );
+      mm.closePath();
+      mm.fill();
+
+      mm.strokeStyle = "rgba(18, 22, 26, 0.65)";
+      mm.lineWidth = 1.5;
+      mm.beginPath();
+      mm.moveTo(px, py);
+      mm.lineTo(endX, endY);
+      mm.stroke();
+    }
+
     // enemies
     if (enemiesRef?.length) {
       for (const e of enemiesRef) {
@@ -80,20 +150,60 @@ export function createMinimap(
 
     // powerups (if you wire them in)
     if (powerupsRef?.length) {
-      mm.fillStyle = "#7c9cff";
       for (const p of powerupsRef) {
         if (p.taken) continue;
-        const w = gridToWorld(p.gx, p.gy);
-        const pg = worldToGrid(w.x, w.z);
-        const cx = PAD + (pg.gx + 0.5) * TILE;
-        const cy = PAD + (pg.gy + 0.5) * TILE;
+        const cx = PAD + (p.gx + 0.5) * TILE;
+        const cy = PAD + (p.gy + 0.5) * TILE;
         if ((cx - px) ** 2 + (cy - py) ** 2 > R * R) continue;
-        mm.fillRect(
-          PAD + pg.gx * TILE + 3,
-          PAD + pg.gy * TILE + 3,
-          TILE - 6,
-          TILE - 6
-        );
+
+        const style = p.mapStyle || {};
+        const ratio = typeof style.ratio === "number" ? style.ratio : 0.58;
+        const size = Math.max(4, Math.min(TILE, ratio * TILE));
+        const half = size / 2;
+
+        if (p.kind === "compass" || style.shape === "compass") {
+          const fill = style.fill || "#ffd95a";
+          const stroke = style.stroke || "rgba(255,255,255,0.9)";
+          const inner = style.inner || "rgba(11,13,18,0.45)";
+          const radius = Math.max(4, half);
+
+          mm.fillStyle = fill;
+          mm.beginPath();
+          mm.arc(cx, cy, radius, 0, Math.PI * 2);
+          mm.fill();
+
+          mm.lineWidth = Math.max(1.2, radius * 0.25);
+          mm.strokeStyle = stroke;
+          mm.beginPath();
+          mm.arc(cx, cy, radius, 0, Math.PI * 2);
+          mm.stroke();
+
+          mm.strokeStyle = inner;
+          mm.lineWidth = Math.max(1, radius * 0.35);
+          mm.beginPath();
+          mm.arc(cx, cy, radius * 0.55, 0, Math.PI * 2);
+          mm.stroke();
+
+          // simple NSEW needle
+          mm.strokeStyle = stroke;
+          mm.lineWidth = Math.max(1, radius * 0.2);
+          mm.beginPath();
+          mm.moveTo(cx, cy - radius * 0.9);
+          mm.lineTo(cx, cy + radius * 0.9);
+          mm.moveTo(cx - radius * 0.9, cy);
+          mm.lineTo(cx + radius * 0.9, cy);
+          mm.stroke();
+        } else {
+          const left = cx - half;
+          const top = cy - half;
+          mm.fillStyle = style.fill || "#7c9cff";
+          mm.fillRect(left, top, size, size);
+          if (style.stroke) {
+            mm.strokeStyle = style.stroke;
+            mm.lineWidth = 1;
+            mm.strokeRect(left - 0.5, top - 0.5, size + 1, size + 1);
+          }
+        }
       }
     }
 
@@ -125,5 +235,10 @@ export function createMinimap(
     mm.strokeRect(0.5, 0.5, width - 1, height - 1);
   }
 
+<<<<<<< Updated upstream
   return { draw };
 }
+=======
+  return { draw, activateCompass, clearCompass };
+}
+>>>>>>> Stashed changes

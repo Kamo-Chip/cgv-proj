@@ -4,6 +4,36 @@ import { ENEMY, COMBAT } from "./constants.js";
 import { gridToWorld, worldToGrid } from "./utils.js";
 
 export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
+<<<<<<< Updated upstream
+=======
+  // ---- Tunables (safe defaults; override in constants.js if you want) ----
+  const MIN_PLAYER_DIST = ENEMY.MIN_PLAYER_DIST ?? 0.9; // personal-space bubble (m)
+  const BASE_RADIUS = ENEMY.RADIUS ?? 0.35; // enemy sphere radius (m)
+  const ATTACK_RADIUS = Math.max(
+    ENEMY.ATTACK_RADIUS ?? BASE_RADIUS,
+    MIN_PLAYER_DIST + 0.02
+  );
+  const VERTICAL_ATTACK_TOL = ENEMY.VERTICAL_ATTACK_TOLERANCE ?? 0.45; // how high off the ground before you're "airborne" for damage
+
+  const ENEMY_MAX_HP = ENEMY.MAX_HP ?? 100;
+
+  // Auto-calibrate player's ground eye-height at first update (or whenever we see a lower eye Y)
+  let eyeGroundBaselineY = null; // camera.y when on ground
+  function updateEyeGroundBaseline() {
+    if (eyeGroundBaselineY === null) {
+      eyeGroundBaselineY = camera.position.y;
+    } else {
+      // keep the *lowest* seen eye height as baseline (in case we started mid-air)
+      if (camera.position.y < eyeGroundBaselineY)
+        eyeGroundBaselineY = camera.position.y;
+    }
+  }
+  function playerVerticalOffsetFromGround() {
+    if (eyeGroundBaselineY === null) return 0; // before first frame, assume grounded
+    return camera.position.y - eyeGroundBaselineY; // ~0 when grounded, >0 when airborne
+  }
+
+>>>>>>> Stashed changes
   const enemies = []; // { mesh, gx, gy, path, targetIndex, vx, vz, ... }
   const enemyGeo = new THREE.SphereGeometry(0.35, 16, 16);
   const baseMat = new THREE.MeshStandardMaterial({
@@ -13,8 +43,195 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     roughness: 0.6,
   });
 
+  const barsLayer =
+    document.getElementById("enemyBars") ??
+    (() => {
+      const layer = document.createElement("div");
+      layer.id = "enemyBars";
+      layer.className = "enemy-bars";
+      document.body.appendChild(layer);
+      return layer;
+    })();
+  const HEALTH_BAR_OFFSET_Y = ENEMY.HEALTH_BAR_OFFSET ?? BASE_RADIUS * 1.8;
+  const barWorldPos = new THREE.Vector3();
+  const barScreenPos = new THREE.Vector3();
+
   const raycaster = new THREE.Raycaster();
   const ndcCenter = new THREE.Vector2(0, 0);
+  const LOS_START_EPS = 1e-4;
+  const LOS_END_EPS = 0.02;
+
+  function createEnemyHealthBar() {
+    if (!barsLayer) return null;
+    const root = document.createElement("div");
+    root.className = "enemy-bar";
+    root.innerHTML =
+      '<div class="enemy-bar__health"></div><div class="enemy-bar__lost"></div><div class="enemy-bar__heal"></div>';
+    const health = root.querySelector(".enemy-bar__health");
+    const lost = root.querySelector(".enemy-bar__lost");
+    const heal = root.querySelector(".enemy-bar__heal");
+    if (!health || !lost || !heal) return null;
+    lost._resetTimeout = null;
+    barsLayer.appendChild(root);
+    return { root, health, lost, heal, removed: false, removeTimeout: null };
+  }
+
+  function destroyEnemyHealthBar(bar, immediate = false) {
+    if (!bar || bar.removed) return;
+    bar.removed = true;
+    if (bar.removeTimeout) {
+      clearTimeout(bar.removeTimeout);
+      bar.removeTimeout = null;
+    }
+    if (bar.lost && bar.lost._resetTimeout) {
+      clearTimeout(bar.lost._resetTimeout);
+      bar.lost._resetTimeout = null;
+    }
+    const remover = () => {
+      if (bar.root && bar.root.parentElement) {
+        bar.root.parentElement.removeChild(bar.root);
+      }
+      bar.root = null;
+      bar.health = null;
+      bar.lost = null;
+      bar.heal = null;
+      bar.removeTimeout = null;
+    };
+    if (immediate) {
+      remover();
+      return;
+    }
+    if (bar.root) {
+      bar.root.classList.add("enemy-bar--dead");
+    }
+    bar.removeTimeout = setTimeout(remover, 260);
+  }
+
+  function segmentIntersectsAABB2D(sx, sz, ex, ez, box) {
+    let tMin = 0;
+    let tMax = 1;
+    const dx = ex - sx;
+    const dz = ez - sz;
+
+    if (Math.abs(dx) < 1e-6) {
+      if (sx < box.min.x || sx > box.max.x) return null;
+    } else {
+      const invDx = 1 / dx;
+      let t1 = (box.min.x - sx) * invDx;
+      let t2 = (box.max.x - sx) * invDx;
+      if (t1 > t2) {
+        const tmp = t1;
+        t1 = t2;
+        t2 = tmp;
+      }
+      tMin = Math.max(tMin, t1);
+      tMax = Math.min(tMax, t2);
+      if (tMin > tMax) return null;
+    }
+
+    if (Math.abs(dz) < 1e-6) {
+      if (sz < box.min.z || sz > box.max.z) return null;
+    } else {
+      const invDz = 1 / dz;
+      let t1 = (box.min.z - sz) * invDz;
+      let t2 = (box.max.z - sz) * invDz;
+      if (t1 > t2) {
+        const tmp = t1;
+        t1 = t2;
+        t2 = tmp;
+      }
+      tMin = Math.max(tMin, t1);
+      tMax = Math.min(tMax, t2);
+      if (tMin > tMax) return null;
+    }
+
+    if (tMax < 0 || tMin > 1) return null;
+    return { enter: tMin, exit: tMax };
+  }
+
+  function hasLineOfSight(startVec, endVec) {
+    const sx = startVec.x;
+    const sz = startVec.z;
+    const ex = endVec.x;
+    const ez = endVec.z;
+    for (const w of walls) {
+      const hit = segmentIntersectsAABB2D(sx, sz, ex, ez, w);
+      if (!hit) continue;
+      if (hit.enter <= LOS_START_EPS) continue;
+      if (hit.enter >= 1 - LOS_END_EPS) continue;
+      return false;
+    }
+    return true;
+  }
+
+  function updateEnemyHealthBar(enemy, prevHp = enemy.hp) {
+    const bar = enemy.bar;
+    if (!bar || !bar.health) return;
+    const maxHp = enemy.maxHp ?? ENEMY_MAX_HP;
+    const clampedPrev = Math.max(0, prevHp);
+    const clampedCurr = Math.max(0, enemy.hp);
+    const prevPct = (clampedPrev / maxHp) * 100;
+    const pct = (clampedCurr / maxHp) * 100;
+    bar.health.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+
+    const diff = prevPct - pct;
+    if (bar.lost && diff > 0.5) {
+      const width = Math.min(100, Math.max(0, diff));
+      bar.lost.classList.add("enemy-bar__lost--active");
+      bar.lost.style.opacity = "1";
+      bar.lost.style.width = `${width}%`;
+      bar.lost.style.right = `${Math.max(0, 100 - prevPct)}%`;
+      if (bar.lost._resetTimeout) clearTimeout(bar.lost._resetTimeout);
+      bar.lost._resetTimeout = setTimeout(() => {
+        if (!bar.lost) return;
+        bar.lost.classList.remove("enemy-bar__lost--active");
+        bar.lost.style.opacity = "0";
+        bar.lost.style.width = "0%";
+      }, 420);
+    }
+
+    if (clampedCurr <= 0 && bar.root) {
+      bar.root.classList.add("enemy-bar--dead");
+    }
+  }
+
+  function updateEnemyBarPosition(enemy) {
+    const bar = enemy.bar;
+    if (!bar || !bar.root || enemy.dead) {
+      if (bar?.root) bar.root.classList.remove("enemy-bar--visible");
+      return;
+    }
+    barWorldPos.copy(enemy.mesh.position);
+    barWorldPos.y += HEALTH_BAR_OFFSET_Y;
+    barScreenPos.copy(barWorldPos).project(camera);
+
+    if (barScreenPos.z < -1 || barScreenPos.z > 1) {
+      bar.root.classList.remove("enemy-bar--visible");
+      return;
+    }
+
+    const screenX = (barScreenPos.x * 0.5 + 0.5) * window.innerWidth;
+    const screenY = (-barScreenPos.y * 0.5 + 0.5) * window.innerHeight;
+
+    if (
+      screenX < 0 ||
+      screenX > window.innerWidth ||
+      screenY < 0 ||
+      screenY > window.innerHeight
+    ) {
+      bar.root.classList.remove("enemy-bar--visible");
+      return;
+    }
+
+    if (!hasLineOfSight(camera.position, enemy.mesh.position)) {
+      bar.root.classList.remove("enemy-bar--visible");
+      return;
+    }
+
+    bar.root.style.left = `${screenX}px`;
+    bar.root.style.top = `${screenY}px`;
+    bar.root.classList.add("enemy-bar--visible");
+  }
 
   let timeSinceReplan = 0;
   let fireTimer = 0;
@@ -108,7 +325,8 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     mesh.castShadow = true;
     mesh.position.set(w.x, 0.35, w.z);
     scene.add(mesh);
-    enemies.push({
+    const bar = createEnemyHealthBar();
+    const enemy = {
       mesh,
       gx: cell.x,
       gy: cell.y,
@@ -118,17 +336,39 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
       vz: 0,
       wanderTimer: 0,
       wanderChangeInterval: 1 + Math.random() * 2,
-      hp: 100,
+      hp: ENEMY_MAX_HP,
+      maxHp: ENEMY_MAX_HP,
       hitFlash: 0,
       dead: false,
       lastWaypointDist: Infinity,
       noProgressTime: 0,
+<<<<<<< Updated upstream
     });
+=======
+
+      // --------- RAM FSM fields ----------
+      ramState: "chase", // "chase" | "windup" | "charge" | "backoff" | "cooldown"
+      ramT: 0,
+      ramDir: { x: 0, z: 0 },
+      ramHasHit: false,
+      ramSide: Math.random() < 0.5 ? 1 : -1, // kept from your original
+      bar,
+    };
+    enemies.push(enemy);
+    if (enemy.bar) updateEnemyHealthBar(enemy, enemy.maxHp);
+    if (enemy.bar) updateEnemyBarPosition(enemy);
+>>>>>>> Stashed changes
     return true;
   }
 
   function reset() {
-    for (const e of enemies) scene.remove(e.mesh);
+    for (const e of enemies) {
+      scene.remove(e.mesh);
+      if (e.bar) {
+        destroyEnemyHealthBar(e.bar, true);
+        e.bar = null;
+      }
+    }
     enemies.length = 0;
     for (let i = 0; i < ENEMY.TARGET_COUNT; i++) spawnEnemy();
     timeSinceReplan = ENEMY.REPLAN_DT;
@@ -229,6 +469,36 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
   }
 
   function update(dt, canDealDamage = true) {
+<<<<<<< Updated upstream
+=======
+    // continuously learn the "ground eye height"
+    updateEyeGroundBaseline();
+
+    const airborneOffset = Math.abs(playerVerticalOffsetFromGround());
+    const canHitByHeight = airborneOffset <= VERTICAL_ATTACK_TOL;
+
+    if (frozen) {
+      for (const e of enemies) {
+        e.hitFlash = Math.max(0, e.hitFlash - dt);
+        e.mesh.material.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
+      }
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        if (enemies[i].dead) {
+          scene.remove(enemies[i].mesh);
+          if (enemies[i].bar) {
+            destroyEnemyHealthBar(enemies[i].bar, true);
+            enemies[i].bar = null;
+          }
+          enemies.splice(i, 1);
+        }
+      }
+      for (const e of enemies) updateEnemyBarPosition(e);
+      ensureQuota();
+      if (fireTimer > 0) fireTimer = Math.max(0, fireTimer - dt);
+      return;
+    }
+
+>>>>>>> Stashed changes
     timeSinceReplan += dt;
     const pg = worldToGrid(camera.position.x, camera.position.z);
 
@@ -348,7 +618,14 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     // separation + touch damage
     resolveEnemyOverlaps();
 
+<<<<<<< Updated upstream
     if (canDealDamage) {
+=======
+    for (const e of enemies) updateEnemyBarPosition(e);
+
+    // DAMAGE: must be close horizontally AND not airborne (by calibrated offset)
+    if (canDealDamage && canHitByHeight) {
+>>>>>>> Stashed changes
       for (const e of enemies) {
         if (e.dead) continue;
         const pdx = camera.position.x - e.mesh.position.x;
@@ -363,6 +640,10 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     for (let i = enemies.length - 1; i >= 0; i--) {
       if (enemies[i].dead) {
         scene.remove(enemies[i].mesh);
+        if (enemies[i].bar) {
+          destroyEnemyHealthBar(enemies[i].bar, true);
+          enemies[i].bar = null;
+        }
         enemies.splice(i, 1);
       }
     }
@@ -387,11 +668,37 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
 
     const enemy = enemies.find((e) => e.mesh === hit.object);
     if (!enemy) return;
+<<<<<<< Updated upstream
     enemy.hp -= COMBAT.HIT_DAMAGE;
     enemy.hitFlash = 0.2;
     enemy.mesh.scale.setScalar(1.12);
     setTimeout(() => enemy.mesh.scale.setScalar(1), 80);
     if (enemy.hp <= 0 && !enemy.dead) enemy.dead = true;
+=======
+    const prevHp = enemy.hp;
+    enemy.hp = Math.max(0, enemy.hp - COMBAT.HIT_DAMAGE);
+    updateEnemyHealthBar(enemy, prevHp);
+    enemy.hitFlash = 0.5;
+    enemy.mesh.scale.setScalar(1.2);
+    setTimeout(() => enemy.mesh.scale.setScalar(1), 100);
+    try {
+      audio.play("enemy_damage", { volume: 0.9 });
+    } catch (e) {
+      console.log(e);
+    }
+    if (enemy.hp <= 0 && !enemy.dead) {
+      try {
+        audio.play("enemy_death", { volume: 0.9 });
+      } catch (e) {
+        console.error("Failed to play enemy death sound:", e);
+      }
+      enemy.dead = true;
+      if (enemy.bar) {
+        destroyEnemyHealthBar(enemy.bar);
+        enemy.bar = null;
+      }
+    }
+>>>>>>> Stashed changes
   }
 
   return { enemies, reset, update, performAttack };

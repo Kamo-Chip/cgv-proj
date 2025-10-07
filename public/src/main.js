@@ -64,6 +64,7 @@ const minimap = createMinimap(
   camera,
   look
 );
+powerupsCtl.setContext({ minimap });
 
 // Reset flow
 function resetGame() {

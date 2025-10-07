@@ -24,6 +24,11 @@
         color: #e6f0ff;
         font-family: ui-sans-serif, system-ui;
       }
+      :root {
+        --enemy-bar-height: 8px;
+        --enemy-bar-width: 130px;
+        --enemy-bar-offset-y: 56px;
+      }
       #app {
         position: fixed;
         inset: 0;
@@ -167,6 +172,86 @@
         display: block;
         image-rendering: pixelated;
       }
+<<<<<<< Updated upstream
+=======
+      .enemy-bars {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 8;
+      }
+      .enemy-bar {
+        position: absolute;
+        width: var(--enemy-bar-width);
+        height: var(--enemy-bar-height);
+        border: 1px solid rgba(0, 0, 0, 0.65);
+        background: rgba(10, 14, 20, 0.78);
+        border-radius: 999px;
+        overflow: hidden;
+        transform: translate(-50%, calc(-1 * var(--enemy-bar-offset-y)));
+        opacity: 0;
+        transition: opacity 120ms ease-out;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+      }
+      .enemy-bar--visible {
+        opacity: 1;
+      }
+      .enemy-bar__health,
+      .enemy-bar__lost,
+      .enemy-bar__heal {
+        position: absolute;
+        top: 0;
+        height: 100%;
+      }
+      .enemy-bar__health {
+        left: 0;
+        width: 100%;
+        background: linear-gradient(90deg, rgba(64, 255, 123, 0.95), rgba(8, 189, 72, 0.92));
+        box-shadow: 0 0 6px rgba(16, 120, 32, 0.9);
+        transition: width 160ms ease-out;
+      }
+      .enemy-bar__lost {
+        right: 0;
+        width: 0;
+        background: rgba(255, 80, 65, 0.92);
+        box-shadow: 0 0 18px rgba(255, 74, 58, 0.5), 0 0 8px rgba(255, 0, 0, 0.55);
+        opacity: 0;
+        transition: opacity 420ms ease-out 160ms;
+      }
+      .enemy-bar__lost--active {
+        transition: opacity 420ms ease-out 160ms, width 200ms ease-out;
+        opacity: 1;
+      }
+      .enemy-bar__heal {
+        left: 0;
+        width: 0;
+        background: rgba(255, 255, 255, 0.6);
+        box-shadow: 0 0 20px rgba(0, 170, 255, 0.55), 0 0 8px rgba(0, 170, 255, 0.7);
+        opacity: 0;
+      }
+      .enemy-bar--dead {
+        opacity: 0;
+      }
+      /* Action hint shown near bottom center when aiming at a weapon */
+      .action-hint {
+        position: fixed;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: 96px;
+        z-index: 12;
+        padding: 8px 12px;
+        border-radius: 10px;
+        background: rgba(10, 14, 20, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        font-size: 13px;
+        color: #e6f0ff;
+        display: none;
+        align-items: center;
+      }
+      .action-hint.show {
+        display: flex;
+      }
+>>>>>>> Stashed changes
     </style>
   </head>
   <body>
@@ -199,6 +284,58 @@
           >
             Jump ↑ <span id="jumpTimer">10.0</span>s
           </div>
+<<<<<<< Updated upstream
+=======
+          <div
+            id="freezeHud"
+            style="
+              display: none;
+              padding: 4px 8px;
+              border-radius: 8px;
+              background: #142131;
+              border: 1px solid #2c3a4d;
+              font-size: 12px;
+            "
+          >
+            Freeze <span id="freezeTimer">10.0</span>s
+          </div>
+          <div
+            id="speedHud"
+            style="
+              display: none;
+              padding: 4px 8px;
+              border-radius: 8px;
+              background: #142131;
+              border: 1px solid #2c3a4d;
+              font-size: 12px;
+            "
+          >
+            Speed <span id="speedTimer">8.0</span>s
+          </div>
+          <div
+            id="compassHud"
+            style="
+              display: none;
+              padding: 4px 8px;
+              border-radius: 8px;
+              background: #142131;
+              border: 1px solid #2c3a4d;
+              font-size: 12px;
+            "
+          >
+            Compass <span id="compassTimer">10.0</span>s
+          </div>
+        </div>
+        <div
+          id="keysHud"
+          style="margin-top: 8px; font-size: 13px; opacity: 0.92"
+        >
+          Keys: <span id="keysCount">0</span> / <span id="keysTotal">0</span>
+        </div>
+        <div class="weapon-row" id="weaponHudRow" style="margin-top: 8px">
+          <div class="weapon-name" id="weaponName">Unarmed</div>
+          <div id="weaponAmmo" style="opacity: 0.85"></div>
+>>>>>>> Stashed changes
         </div>
       </div>
     </div>
@@ -208,6 +345,8 @@
     <div class="minimap-wrap">
       <canvas id="minimap"></canvas>
     </div>
+
+    <div id="enemyBars" class="enemy-bars" aria-hidden="true"></div>
 
     <div id="start" class="overlay">
       <div class="panel">
