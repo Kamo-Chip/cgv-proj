@@ -374,9 +374,7 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
 
         if (enemy) {
           enemy.hp -= p.dmg;
-          enemy.hitFlash = 0.2;
-          enemy.mesh.scale.setScalar(1.12);
-          setTimeout(() => enemy.mesh.scale.setScalar(1), 80);
+          enemy.hitFlash = 1.0; // Strong flash for projectile hit
           if (enemy.hp <= 0 && !enemy.dead) enemy.dead = true;
         }
 

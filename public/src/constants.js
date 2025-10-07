@@ -13,6 +13,12 @@ export const MAZE = {
   WALL_H: 1.6,
 };
 
+export const ENEMY_STATE = {
+  PATROL: "patrol",
+  CHASE: "chase",
+  ATTACK: "attack",
+};
+
 export const MOVE = {
   ACCEL: 30,
   MAX_SPEED: 20,
@@ -22,9 +28,9 @@ export const MOVE = {
 };
 
 export const ENEMY = {
-  SPEED: 2.6,
+  SPEED: 1.5,
   RADIUS: 0.4,
-  DMG_PER_SEC: 10,
+  DMG_PER_SEC: 8,
   REPLAN_DT: 0.2,
   TARGET_COUNT: 8,
   SPAWN_MIN_DIST: MAZE.CELL * 6,
@@ -33,7 +39,12 @@ export const ENEMY = {
   SEPARATION_ITERATIONS: 2,
   PUSH_FACTOR: 1.0,
   PATHFIND_RADIUS: MAZE.CELL * 6,
-  WANDER_SPEED: 0.8,
+  WANDER_SPEED: 0.5,
+  PATROL_RADIUS: 10,
+  CHASE_RADIUS: 8,
+  ATTACK_RADIUS: 0.8,
+  BASE_ACTIVE_LIMIT: 2, // how many can chase you on level 1
+  ACTIVE_INCREASE_PER_LEVEL: 1,
 };
 
 export const COMBAT = {

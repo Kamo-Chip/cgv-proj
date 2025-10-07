@@ -1,6 +1,6 @@
 // src/enemies.js
 import * as THREE from "three";
-import { ENEMY, COMBAT } from "./constants.js";
+import { ENEMY, COMBAT, ENEMY_STATE } from "./constants.js";
 import { gridToWorld, worldToGrid, loadModel } from "./utils.js";
 
 // near top: you already have this line
@@ -187,6 +187,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
       dead: false,
       lastWaypointDist: Infinity,
       noProgressTime: 0,
+      state: ENEMY_STATE.PATROL,
     });
 
     return true;
@@ -209,6 +210,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
   function resolveEnemyOverlaps() {
     const minDist = ENEMY.RADIUS * 2;
     const minDist2 = minDist * minDist;
+
     for (let iter = 0; iter < ENEMY.SEPARATION_ITERATIONS; iter++) {
       for (let i = 0; i < enemies.length; i++) {
         const ei = enemies[i];
@@ -239,7 +241,8 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
           }
         }
       }
-      // keep enemies out of walls
+
+      // Wall correction step AFTER overlaps
       for (const e of enemies) {
         if (e.dead) continue;
         let nx = e.mesh.position.x,
@@ -293,174 +296,184 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     e.mesh.position.z += Math.sin(a) * 0.02;
   }
 
+  // Keep a global store for original colors/emissives
   function setFrozen(isFrozen) {
     frozen = isFrozen;
+
     for (const e of enemies) {
-      if (isFrozen) {
-        setMaterialProperty(e.mesh, "color", new THREE.Color(0xcccccc));
-        setMaterialProperty(e.mesh, "emissive", new THREE.Color(0x555555));
-      } else {
-        setMaterialProperty(e.mesh, "color", new THREE.Color(0xff5252));
-        setMaterialProperty(e.mesh, "emissive", new THREE.Color(0x550000));
-      }
+      e.mesh.traverse((mesh) => {
+        if (!mesh.isMesh || !mesh.material) return;
+
+        // Clone materials when freezing to ensure they're unique per enemy
+        if (isFrozen && !mesh.userData.originalMaterial) {
+          // Store the original material
+          mesh.userData.originalMaterial = mesh.material;
+
+          // Clone and modify the material for frozen state
+          const frozenMaterial = mesh.material.clone();
+          frozenMaterial.color.set(0xcccccc);
+          if (frozenMaterial.emissive) {
+            frozenMaterial.emissive.set(0x555555);
+          }
+          mesh.material = frozenMaterial;
+        }
+        // Restore original material when unfreezing
+        else if (!isFrozen && mesh.userData.originalMaterial) {
+          mesh.material = mesh.userData.originalMaterial;
+          mesh.userData.originalMaterial = null;
+        }
+      });
     }
   }
 
-  function update(dt, canDealDamage = true) {
-    if (frozen) {
-      // enemies don't move or deal damage
-      for (const e of enemies) {
-        e.hitFlash = Math.max(0, e.hitFlash - dt);
-        setMaterialProperty(
-          e.mesh,
-          "emissiveIntensity",
-          0.2 + e.hitFlash * 1.0
-        );
+  function patrolBehaviour(e, dt, walls, enemies, level = 1) {
+    // Save previous position for smooth rotation
+    const prevX = e.mesh.position.x;
+    const prevZ = e.mesh.position.z;
+
+    e.wanderTimer += dt;
+    if (e.wanderTimer >= (e.wanderChangeInterval || 0)) {
+      const a = Math.random() * Math.PI * 2;
+      e.vx = Math.cos(a) * ENEMY.WANDER_SPEED;
+      e.vz = Math.sin(a) * ENEMY.WANDER_SPEED;
+      e.wanderChangeInterval = 1 + Math.random() * 2;
+      e.wanderTimer = 0;
+    }
+
+    // Move intent
+    let nx = prevX + (e.vx || 0) * dt;
+    let nz = prevZ + (e.vz || 0) * dt;
+
+    // Separation smoothing
+    const baseMinDist = ENEMY.RADIUS * 4;
+    const minDist = Math.max(
+      baseMinDist * (1 - 0.05 * (level - 1)),
+      ENEMY.RADIUS * 2
+    );
+    const minDist2 = minDist * minDist;
+
+    for (const other of enemies) {
+      if (other === e || other.dead) continue;
+      const dx = nx - other.mesh.position.x;
+      const dz = nz - other.mesh.position.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < minDist2 && d2 > 0.0001) {
+        const d = Math.sqrt(d2);
+        const push = (minDist - d) * 0.3;
+        nx += (dx / d) * push * dt; // smooth push
+        nz += (dz / d) * push * dt;
       }
-      // prune dead & top up
-      for (let i = enemies.length - 1; i >= 0; i--) {
-        if (enemies[i].dead) {
-          scene.remove(enemies[i].mesh);
-          enemies.splice(i, 1);
-        }
+    }
+
+    // Wall collision smoothing
+    for (const w of walls) {
+      const cx = Math.max(w.min.x, Math.min(nx, w.max.x));
+      const cz = Math.max(w.min.z, Math.min(nz, w.max.z));
+      const ddx = nx - cx,
+        ddz = nz - cz,
+        d2 = ddx * ddx + ddz * ddz;
+      if (d2 < ENEMY.RADIUS * ENEMY.RADIUS) {
+        const d = Math.sqrt(d2) || 1e-5;
+        const overlap = ENEMY.RADIUS - d;
+        nx += (ddx / d) * overlap * dt;
+        nz += (ddz / d) * overlap * dt;
+        if (Math.abs(ddx) > Math.abs(ddz)) e.vx = -(e.vx || 0) * 0.6;
+        else e.vz = -(e.vz || 0) * 0.6;
       }
-      ensureQuota();
-      // cooldown tick
-      if (fireTimer > 0) fireTimer = Math.max(0, fireTimer - dt);
+    }
+
+    // Apply movement
+    e.mesh.position.set(nx, e.mesh.position.y, nz);
+
+    // Smooth rotation
+    const mvx = nx - prevX;
+    const mvz = nz - prevZ;
+    if (Math.abs(mvx) > 0.001 || Math.abs(mvz) > 0.001) {
+      e.mesh.rotation.y = Math.atan2(-mvx, -mvz);
+    }
+  }
+
+  function chaseBehaviour(e, playerGrid, dt, walls) {
+    if (e.inactive) return;
+
+    if (!e.path || e.path.length === 0 || e.targetIndex >= e.path.length) {
+      forceReplanForEnemy(e, playerGrid);
       return;
     }
 
-    timeSinceReplan += dt;
-    const pg = worldToGrid(camera.position.x, camera.position.z);
+    const prevX = e.mesh.position.x;
+    const prevZ = e.mesh.position.z;
 
-    // periodic replan
-    if (timeSinceReplan >= ENEMY.REPLAN_DT) {
-      for (const e of enemies) {
-        if (e.dead) continue;
-        const distToPlayer = Math.hypot(
-          e.mesh.position.x - camera.position.x,
-          e.mesh.position.z - camera.position.z
-        );
-        if (distToPlayer <= ENEMY.PATHFIND_RADIUS) {
-          const path = bfsPath(e.gx, e.gy, pg.gx, pg.gy);
-          if (path && path.length > 1) {
-            e.path = path;
-            e.targetIndex = 1;
-          }
-        } else {
-          e.path = [];
-          e.targetIndex = 0;
-        }
-      }
-      timeSinceReplan = 0;
+    const targetCell = e.path[Math.min(e.targetIndex, e.path.length - 1)];
+    const tw = gridToWorld(targetCell.gx, targetCell.gy);
+
+    let dx = tw.x - prevX;
+    let dz = tw.z - prevZ;
+    const dist = Math.hypot(dx, dz);
+
+    if (dist < 0.02) {
+      e.mesh.position.set(tw.x, e.mesh.position.y, tw.z);
+      e.gx = targetCell.gx;
+      e.gy = targetCell.gy;
+      e.targetIndex++;
+      return;
     }
 
-    // move enemies
-    for (const e of enemies) {
-      if (e.dead) continue;
+    dx /= dist || 1;
+    dz /= dist || 1;
 
-      // decay hit flash
+    const moveStep = ENEMY.SPEED * dt;
+    let nx, nz;
+
+    if (dist > moveStep) {
+      nx = prevX + dx * moveStep;
+      nz = prevZ + dz * moveStep;
+    } else {
+      nx = tw.x;
+      nz = tw.z;
+    }
+
+    // Wall collision smoothing
+    for (const w of walls) {
+      const cx = Math.max(w.min.x, Math.min(nx, w.max.x));
+      const cz = Math.max(w.min.z, Math.min(nz, w.max.z));
+      const ddx = nx - cx,
+        ddz = nz - cz,
+        d2 = ddx * ddx + ddz * ddz;
+      if (d2 < ENEMY.RADIUS * ENEMY.RADIUS) {
+        const d = Math.sqrt(d2) || 1e-5;
+        const overlap = ENEMY.RADIUS - d;
+        nx += (ddx / d) * overlap * dt;
+        nz += (ddz / d) * overlap * dt;
+      }
+    }
+
+    e.mesh.position.x = nx;
+    e.mesh.position.z = nz;
+
+    const mvx = nx - prevX;
+    const mvz = nz - prevZ;
+    if (Math.abs(mvx) > 0.001 || Math.abs(mvz) > 0.001) {
+      e.mesh.rotation.y = Math.atan2(-mvz, mvx);
+    }
+  }
+
+  function attackBehaviour(e, camera, dt, onPlayerDamage) {
+    const pdx = camera.position.x - e.mesh.position.x;
+    const pdz = camera.position.z - e.mesh.position.z;
+    const dist = Math.hypot(pdx, pdz);
+
+    if (dist < ENEMY.ATTACK_RADIUS) {
+      onPlayerDamage(ENEMY.DMG_PER_SEC * dt);
+    }
+  }
+
+ function update(dt, canDealDamage = true, currentLevel = 1) {
+  if (frozen) {
+    for (const e of enemies) {
       e.hitFlash = Math.max(0, e.hitFlash - dt);
       setMaterialProperty(e.mesh, "emissiveIntensity", 0.2 + e.hitFlash * 1.0);
-
-      // sync grid from actual pos
-      const here = worldToGrid(e.mesh.position.x, e.mesh.position.z);
-      e.gx = here.gx;
-      e.gy = here.gy;
-
-      if (!e.path || e.path.length === 0) {
-        // wander
-        e.wanderTimer = (e.wanderTimer || 0) + dt;
-        if (e.wanderTimer >= (e.wanderChangeInterval || 0)) {
-          const a = Math.random() * Math.PI * 2;
-          e.vx = Math.cos(a) * ENEMY.WANDER_SPEED;
-          e.vz = Math.sin(a) * ENEMY.WANDER_SPEED;
-          e.wanderChangeInterval = 1 + Math.random() * 2;
-          e.wanderTimer = 0;
-        }
-        let nx = e.mesh.position.x + (e.vx || 0) * dt;
-        let nz = e.mesh.position.z + (e.vz || 0) * dt;
-        for (const w of walls) {
-          const cx = Math.max(w.min.x, Math.min(nx, w.max.x));
-          const cz = Math.max(w.min.z, Math.min(nz, w.max.z));
-          const ddx = nx - cx,
-            ddz = nz - cz,
-            d2 = ddx * ddx + ddz * ddz;
-          if (d2 < ENEMY.RADIUS * ENEMY.RADIUS) {
-            const d = Math.sqrt(d2) || 1e-5;
-            const overlap = ENEMY.RADIUS - d;
-            nx += (ddx / d) * overlap;
-            nz += (ddz / d) * overlap;
-            // simple bounce
-            if (Math.abs(ddx) > Math.abs(ddz)) e.vx = -(e.vx || 0) * 0.6;
-            else e.vz = -(e.vz || 0) * 0.6;
-          }
-        }
-        e.mesh.position.set(nx, e.mesh.position.y, nz);
-        continue;
-      }
-
-      const targetCell = e.path[Math.min(e.targetIndex, e.path.length - 1)];
-      const tw = gridToWorld(targetCell.gx, targetCell.gy);
-      let dx = tw.x - e.mesh.position.x,
-        dz = tw.z - e.mesh.position.z;
-      const dist = Math.hypot(dx, dz);
-
-      if (dist > e.lastWaypointDist - 0.001) e.noProgressTime += dt;
-      else e.noProgressTime = 0;
-      e.lastWaypointDist = dist;
-
-      if (e.noProgressTime > 0.6) {
-        forceReplanForEnemy(e, pg);
-        continue;
-      }
-
-      if (dist < 0.02) {
-        e.mesh.position.set(tw.x, e.mesh.position.y, tw.z);
-        e.gx = targetCell.gx;
-        e.gy = targetCell.gy;
-        e.lastWaypointDist = Infinity;
-        e.noProgressTime = 0;
-        if (e.targetIndex < e.path.length - 1) e.targetIndex++;
-        continue;
-      }
-
-      dx /= dist || 1;
-      dz /= dist || 1;
-      let nx = e.mesh.position.x + dx * ENEMY.SPEED * dt;
-      let nz = e.mesh.position.z + dz * ENEMY.SPEED * dt;
-      for (const w of walls) {
-        const cx = Math.max(w.min.x, Math.min(nx, w.max.x));
-        const cz = Math.max(w.min.z, Math.min(nz, w.max.z));
-        const ddx = nx - cx,
-          ddz = nz - cz,
-          d2 = ddx * ddx + ddz * ddz;
-        if (d2 < ENEMY.RADIUS * ENEMY.RADIUS) {
-          const d = Math.sqrt(d2) || 1e-5;
-          const overlap = ENEMY.RADIUS - d;
-          nx += (ddx / d) * overlap;
-          nz += (ddz / d) * overlap;
-        }
-      }
-      e.mesh.position.x = nx;
-      e.mesh.position.z = nz;
     }
-
-    // separation + touch damage
-    resolveEnemyOverlaps();
-
-    if (canDealDamage) {
-      for (const e of enemies) {
-        if (e.dead) continue;
-        const pdx = camera.position.x - e.mesh.position.x;
-        const pdz = camera.position.z - e.mesh.position.z;
-        if (Math.hypot(pdx, pdz) < ENEMY.RADIUS) {
-          onPlayerDamage(ENEMY.DMG_PER_SEC * dt);
-        }
-      }
-    }
-
-    // prune dead & top up
     for (let i = enemies.length - 1; i >= 0; i--) {
       if (enemies[i].dead) {
         scene.remove(enemies[i].mesh);
@@ -468,10 +481,103 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
       }
     }
     ensureQuota();
-
-    // cooldown tick
     if (fireTimer > 0) fireTimer = Math.max(0, fireTimer - dt);
+    return;
   }
+
+  timeSinceReplan += dt;
+  const pg = worldToGrid(camera.position.x, camera.position.z);
+
+  const activeLimit =
+    ENEMY.BASE_ACTIVE_LIMIT +
+    (currentLevel - 1) * ENEMY.ACTIVE_INCREASE_PER_LEVEL;
+
+  let activeChasers = 0;
+
+  // Replan path only if enough time has passed
+  if (timeSinceReplan >= ENEMY.REPLAN_DT) {
+    for (const e of enemies) {
+      if (e.dead) continue;
+      const distToPlayer = Math.hypot(
+        e.mesh.position.x - camera.position.x,
+        e.mesh.position.z - camera.position.z
+      );
+
+      // Reset state
+      if (distToPlayer <= ENEMY.ATTACK_RADIUS) {
+        e.state = ENEMY_STATE.ATTACK;
+      } else if (distToPlayer <= ENEMY.CHASE_RADIUS) {
+        if (activeChasers < activeLimit) {
+          e.state = ENEMY_STATE.CHASE;
+          forceReplanForEnemy(e, pg);
+          activeChasers++;
+        } else {
+          e.state = ENEMY_STATE.PATROL;
+        }
+      } else {
+        e.state = ENEMY_STATE.PATROL;
+      }
+    }
+    timeSinceReplan = 0;
+  }
+
+  let currentFrameChasers = 0;
+
+  for (const e of enemies) {
+    if (e.dead) continue;
+
+    e.hitFlash = Math.max(0, e.hitFlash - dt);
+    setMaterialProperty(e.mesh, "emissiveIntensity", 0.2 + e.hitFlash * 1.0);
+
+    switch (e.state) {
+      case ENEMY_STATE.PATROL:
+        patrolBehaviour(e, dt, walls, enemies, currentLevel);
+        break;
+
+      case ENEMY_STATE.CHASE:
+        if (currentFrameChasers < activeLimit) {
+          chaseBehaviour(e, pg, dt, walls);
+          currentFrameChasers++;
+        } else {
+          e.state = ENEMY_STATE.PATROL;
+          patrolBehaviour(e, dt, walls, enemies, currentLevel);
+        }
+        break;
+
+      case ENEMY_STATE.ATTACK:
+        attackBehaviour(e, camera, dt, onPlayerDamage);
+        break;
+    }
+  }
+
+  resolveEnemyOverlaps();
+
+  if (canDealDamage) {
+    for (const e of enemies) {
+      if (e.dead) continue;
+      const pdx = camera.position.x - e.mesh.position.x;
+      const pdz = camera.position.z - e.mesh.position.z;
+      if (
+        Math.hypot(pdx, pdz) < ENEMY.RADIUS &&
+        e.state === ENEMY_STATE.ATTACK
+      ) {
+        onPlayerDamage(ENEMY.DMG_PER_SEC * dt);
+      }
+    }
+  }
+
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    if (enemies[i].dead) {
+      scene.remove(enemies[i].mesh);
+      enemies.splice(i, 1);
+    }
+  }
+
+  ensureQuota();
+
+  if (fireTimer > 0) fireTimer = Math.max(0, fireTimer - dt);
+}
+
 
   // performAttack: recursive raycast + find parent enemy when a child mesh is hit
   function performAttack(wallGroup) {
@@ -503,11 +609,13 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     enemy.hp -= COMBAT.HIT_DAMAGE;
     enemy.hitFlash = 0.2;
     // animate (scale the top-level group)
-    enemy.mesh.scale.setScalar(1.12);
-    setTimeout(() => enemy.mesh.scale.setScalar(1), 80);
+    setMaterialProperty(enemy.mesh, "emissiveIntensity", 1.0);
+    setTimeout(
+      () => setMaterialProperty(enemy.mesh, "emissiveIntensity", 0.2),
+      80
+    );
     if (enemy.hp <= 0 && !enemy.dead) enemy.dead = true;
   }
 
   return { enemies, reset, update, performAttack, setFrozen };
 }
-
