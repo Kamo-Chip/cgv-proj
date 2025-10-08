@@ -35,7 +35,7 @@ function applyBoxUVs(geometry, map) {
 }
 
 function createBox(size, map, material) {
-  const geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
+  const geometry = new THREE.BoxGeometry(size.x, size.y, size.z, 2, 2, 2);
   applyBoxUVs(geometry, map);
   return new THREE.Mesh(geometry, material);
 }
@@ -155,6 +155,28 @@ const SKIN_MAP = {
       bottom: skinRegion(56, 48, 4, 4),
     },
   },
+  handRight: {
+    size: new THREE.Vector3(3 * PIXEL_UNIT, 3 * PIXEL_UNIT, 3 * PIXEL_UNIT),
+    base: {
+      front: skinRegion(44, 20, 4, 4),
+      back: skinRegion(52, 20, 4, 4),
+      right: skinRegion(40, 20, 4, 4),
+      left: skinRegion(48, 20, 4, 4),
+      top: skinRegion(44, 16, 4, 4),
+      bottom: skinRegion(48, 16, 4, 4),
+    },
+  },
+  handLeft: {
+    size: new THREE.Vector3(3 * PIXEL_UNIT, 3 * PIXEL_UNIT, 3 * PIXEL_UNIT),
+    base: {
+      front: skinRegion(44, 20, 4, 4),
+      back: skinRegion(52, 20, 4, 4),
+      right: skinRegion(40, 20, 4, 4),
+      left: skinRegion(48, 20, 4, 4),
+      top: skinRegion(44, 16, 4, 4),
+      bottom: skinRegion(48, 16, 4, 4),
+    },
+  },
 };
 
 function buildAvatar(materials) {
@@ -163,13 +185,14 @@ function buildAvatar(materials) {
   group.name = "PlayerAvatar";
 
   const allMeshes = [];
+  const refs = {};
 
   const legsHeight = SKIN_MAP.legLeft.size.y;
   const torsoHeight = SKIN_MAP.torso.size.y;
-  const headHeight = SKIN_MAP.head.size.y;
   const torsoWidth = SKIN_MAP.torso.size.x;
   const armWidth = SKIN_MAP.armLeft.size.x;
   const legWidth = SKIN_MAP.legLeft.size.x;
+  const handHeight = SKIN_MAP.handLeft.size.y;
 
   const hipGap = PIXEL_UNIT * 0.5;
   const shoulderGap = PIXEL_UNIT * 0.5;
@@ -200,6 +223,8 @@ function buildAvatar(materials) {
   torsoGroup.position.set(0, legsHeight + torsoHeight / 2, 0);
   addPart("torso", { container: torsoGroup, meshOffset: new THREE.Vector3(0, 0, 0) });
   group.add(torsoGroup);
+  refs.torso = torsoGroup;
+  const torsoBaseY = torsoGroup.position.y;
 
   const headPivot = new THREE.Group();
   headPivot.name = "AvatarHead";
@@ -207,6 +232,24 @@ function buildAvatar(materials) {
   const headOffset = new THREE.Vector3(0, SKIN_MAP.head.size.y / 2, 0);
   addPart("head", { container: headPivot, meshOffset: headOffset, overlayScale: 1.06 });
   group.add(headPivot);
+  refs.head = headPivot;
+
+  // Mouth (simple mesh for expressive animation)
+  const mouthGeometry = new THREE.PlaneGeometry(2 * PIXEL_UNIT, 0.6 * PIXEL_UNIT, 1, 1);
+  const mouthMaterial = new THREE.MeshStandardMaterial({
+    color: 0xe66,
+    emissive: 0x220505,
+    roughness: 0.45,
+    metalness: 0.05,
+    side: THREE.DoubleSide,
+  });
+  const mouthMesh = new THREE.Mesh(mouthGeometry, mouthMaterial);
+  mouthMesh.position.set(0, headOffset.y - 2 * PIXEL_UNIT, SKIN_MAP.head.size.z / 2 + PIXEL_UNIT * 0.15);
+  mouthMesh.castShadow = false;
+  mouthMesh.receiveShadow = false;
+  mouthMesh.name = "AvatarMouth";
+  refs.mouth = mouthMesh;
+  headPivot.add(mouthMesh);
 
   const leftLegPivot = new THREE.Group();
   leftLegPivot.name = "AvatarLegLeft";
@@ -214,12 +257,14 @@ function buildAvatar(materials) {
   const legOffset = new THREE.Vector3(0, -SKIN_MAP.legLeft.size.y / 2, 0);
   addPart("legLeft", { container: leftLegPivot, meshOffset: legOffset, overlayScale: 1.02 });
   group.add(leftLegPivot);
+  refs.legLeft = leftLegPivot;
 
   const rightLegPivot = new THREE.Group();
   rightLegPivot.name = "AvatarLegRight";
   rightLegPivot.position.set((legWidth + hipGap) / 2, legsHeight, 0);
   addPart("legRight", { container: rightLegPivot, meshOffset: legOffset, overlayScale: 1.02 });
   group.add(rightLegPivot);
+  refs.legRight = rightLegPivot;
 
   const rightArmPivot = new THREE.Group();
   rightArmPivot.name = "AvatarArmRight";
@@ -231,6 +276,7 @@ function buildAvatar(materials) {
   const armOffset = new THREE.Vector3(0, -SKIN_MAP.armRight.size.y / 2, 0);
   addPart("armRight", { container: rightArmPivot, meshOffset: armOffset, overlayScale: 1.04 });
   group.add(rightArmPivot);
+  refs.armRight = rightArmPivot;
 
   const leftArmPivot = new THREE.Group();
   leftArmPivot.name = "AvatarArmLeft";
@@ -241,17 +287,48 @@ function buildAvatar(materials) {
   );
   addPart("armLeft", { container: leftArmPivot, meshOffset: armOffset, overlayScale: 1.04 });
   group.add(leftArmPivot);
+  refs.armLeft = leftArmPivot;
 
-  headPivot.rotation.set(THREE.MathUtils.degToRad(12), THREE.MathUtils.degToRad(25), 0);
+  const rightHandPivot = new THREE.Group();
+  rightHandPivot.name = "AvatarHandRight";
+  rightHandPivot.position.set(0, -SKIN_MAP.armRight.size.y + handHeight / 2, 0);
+  const handOffset = new THREE.Vector3(0, -handHeight / 2, 0);
+  addPart("handRight", { container: rightHandPivot, meshOffset: handOffset, overlayScale: 1.02 });
+  rightArmPivot.add(rightHandPivot);
+  refs.handRight = rightHandPivot;
+
+  const leftHandPivot = new THREE.Group();
+  leftHandPivot.name = "AvatarHandLeft";
+  leftHandPivot.position.set(0, -SKIN_MAP.armLeft.size.y + handHeight / 2, 0);
+  addPart("handLeft", { container: leftHandPivot, meshOffset: handOffset, overlayScale: 1.02 });
+  leftArmPivot.add(leftHandPivot);
+  refs.handLeft = leftHandPivot;
+
+  const headBasePitch = THREE.MathUtils.degToRad(10);
+  const headBaseYaw = THREE.MathUtils.degToRad(20);
 
   const animate = (time, speed) => {
-    const swing = Math.min(speed * 1.2, 1) * 0.6;
-    rightArmPivot.rotation.x = -0.2 + Math.sin(time * 6) * swing;
-    leftArmPivot.rotation.x = 0.2 + Math.sin(time * 6 + Math.PI) * swing;
+    const walkIntensity = THREE.MathUtils.clamp(speed * 0.4, 0, 1);
+    const cycle = time * 6;
+    const swing = 0.6 * walkIntensity;
+
+    refs.armRight.rotation.x = -0.2 + Math.sin(cycle + Math.PI) * swing;
+    refs.armLeft.rotation.x = 0.2 + Math.sin(cycle) * swing;
+
+    refs.legRight.rotation.x = Math.sin(cycle + Math.PI) * 0.7 * walkIntensity;
+    refs.legLeft.rotation.x = Math.sin(cycle) * 0.7 * walkIntensity;
+
+    refs.handRight.rotation.x = Math.sin(cycle + Math.PI) * 0.35 * walkIntensity;
+    refs.handLeft.rotation.x = Math.sin(cycle) * 0.35 * walkIntensity;
+
+    refs.torso.position.y = torsoBaseY + Math.sin(cycle * 0.5) * 0.02 * walkIntensity;
 
     const idle = Math.sin(time * 0.4) * 0.05;
-    headPivot.rotation.y = THREE.MathUtils.degToRad(20) + Math.sin(time * 0.6) * 0.15;
-    headPivot.rotation.x = THREE.MathUtils.degToRad(10) + idle;
+    refs.head.rotation.y = headBaseYaw + Math.sin(time * 0.6) * 0.18;
+    refs.head.rotation.x = headBasePitch + idle + walkIntensity * 0.08;
+
+    const mouthPulse = 1 + Math.max(0, Math.sin(time * 3)) * 0.35 * (0.5 + walkIntensity);
+    refs.mouth.scale.y = THREE.MathUtils.lerp(refs.mouth.scale.y, mouthPulse, 0.2);
   };
 
   return { group, allMeshes, animate };
@@ -278,6 +355,7 @@ export function createPlayerAvatar({ skinUrl = DEFAULT_SKIN } = {}) {
         map: texture,
         roughness: 0.65,
         metalness: 0.1,
+        flatShading: false,
       });
       const overlayMaterial = new THREE.MeshStandardMaterial({
         map: texture,
@@ -286,6 +364,7 @@ export function createPlayerAvatar({ skinUrl = DEFAULT_SKIN } = {}) {
         transparent: true,
         alphaTest: 0.5,
         depthWrite: false,
+        flatShading: false,
       });
 
       const { group, allMeshes, animate } = buildAvatar({ baseMaterial, overlayMaterial });
