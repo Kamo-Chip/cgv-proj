@@ -9,7 +9,8 @@ export function createMinimap(
   powerupsRef,
   weaponsRef,
   camera,
-  look
+  look,
+  getCompassState
 ) {
   const canvas = document.getElementById("minimap");
   const TILE = MINIMAP.TILE,
@@ -81,7 +82,6 @@ export function createMinimap(
 
     // powerups (if you wire them in)
     if (powerupsRef?.length) {
-      mm.fillStyle = "#7c9cff";
       for (const p of powerupsRef) {
         if (p.taken) continue;
         const w = gridToWorld(p.gx, p.gy);
@@ -89,6 +89,9 @@ export function createMinimap(
         const cx = PAD + (pg.gx + 0.5) * TILE;
         const cy = PAD + (pg.gy + 0.5) * TILE;
         if ((cx - px) ** 2 + (cy - py) ** 2 > R * R) continue;
+        const kind = p.mesh?.userData?.kind;
+        const isCompass = kind === "compass";
+        mm.fillStyle = isCompass ? "rgba(72,255,214,0.95)" : "#7c9cff";
         mm.fillRect(
           PAD + pg.gx * TILE + 3,
           PAD + pg.gy * TILE + 3,
@@ -139,6 +142,42 @@ export function createMinimap(
     mm.moveTo(px, py);
     mm.lineTo(px + dx, py + dy);
     mm.stroke();
+
+    const compassState = typeof getCompassState === "function" ? getCompassState() : null;
+    if (compassState?.active && compassState.timeLeft > 0) {
+      const intensity = compassState.duration > 0 ? compassState.timeLeft / compassState.duration : 1;
+      const arrowAlpha = 0.45 + 0.45 * Math.max(0, Math.min(1, intensity));
+      const goalCenterX = PAD + (goalG.gx + 0.5) * TILE;
+      const goalCenterY = PAD + (goalG.gy + 0.5) * TILE;
+      let adx = goalCenterX - px;
+      let ady = goalCenterY - py;
+      const dist = Math.hypot(adx, ady) || 1;
+      adx /= dist;
+      ady /= dist;
+      const arrowRadius = Math.min(R - 6, dist);
+      const arrowX = px + adx * arrowRadius;
+      const arrowY = py + ady * arrowRadius;
+
+      mm.save();
+      mm.translate(arrowX, arrowY);
+      mm.rotate(Math.atan2(ady, adx));
+      mm.fillStyle = `rgba(72,255,214,${arrowAlpha.toFixed(3)})`;
+      mm.beginPath();
+      mm.moveTo(0, 0);
+      mm.lineTo(-TILE * 0.6, TILE * 0.35);
+      mm.lineTo(-TILE * 0.6, -TILE * 0.35);
+      mm.closePath();
+      mm.fill();
+      mm.restore();
+
+      const pulseRadius = Math.max(TILE * 0.6, Math.min(TILE * 1.1, R * 0.3));
+      const pulseAlpha = 0.2 + 0.25 * Math.sin(performance.now() * 0.008) * Math.max(0.4, intensity);
+      mm.beginPath();
+      mm.arc(px, py, pulseRadius, 0, Math.PI * 2);
+      mm.strokeStyle = `rgba(72,255,214,${pulseAlpha.toFixed(3)})`;
+      mm.lineWidth = 2;
+      mm.stroke();
+    }
 
     mm.restore();
 

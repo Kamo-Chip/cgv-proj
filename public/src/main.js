@@ -56,6 +56,7 @@ thirdPersonCam = createThirdPersonCamera(camera, playerPositionForCam);
       pistol_attack: "./sounds/pistol_attack.wav",
       pistol_pick: "./sounds/pistol_pick.wav",
       powerup_pick: "./sounds/powerup_pick.wav",
+      compass_pick: "./sounds/powerup_pick.wav",
       knife_pick: "./sounds/knife_pick.wav",
       knife_attack: "./sounds/knife_attack.wav",
       enemy_damage: "./sounds/enemy_damage.wav",
@@ -161,7 +162,7 @@ function onPlayerDamage(dmg) {
     hud.showLose();
   }
 }
-const enemiesCtl = initEnemies(scene, camera, walls, maze, onPlayerDamage);
+const enemiesCtl = initEnemies(scene, camera, wallGroup, walls, maze, onPlayerDamage);
 
 // Powerups
 const powerupsCtl = initPowerups(scene, maze, enemiesCtl);
@@ -177,7 +178,8 @@ const minimap = createMinimap(
   powerupsCtl.powerups,
   weaponsCtl.weapons,
   camera,
-  look
+  look,
+  powerupsCtl.getCompassState
 );
 
 // Keys

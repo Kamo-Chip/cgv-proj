@@ -4,7 +4,14 @@ import { ENEMY, COMBAT } from "./constants.js";
 import { gridToWorld, worldToGrid } from "./utils.js";
 import { audio } from "./audio.js";
 
-export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
+export function initEnemies(
+  scene,
+  camera,
+  wallGroup,
+  walls,
+  maze,
+  onPlayerDamage
+) {
   // ---- Tunables (safe defaults; override in constants.js if you want) ----
   const MIN_PLAYER_DIST = ENEMY.MIN_PLAYER_DIST ?? 0.9; // personal-space bubble (m)
   const BASE_RADIUS = ENEMY.RADIUS ?? 0.35; // enemy sphere radius (m)
@@ -40,7 +47,22 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
   });
 
   const raycaster = new THREE.Raycaster();
+  const losRaycaster = new THREE.Raycaster();
   const ndcCenter = new THREE.Vector2(0, 0);
+  const wallMeshes = wallGroup?.children ? wallGroup.children.slice() : [];
+
+  let healthLayer = document.getElementById("enemyHealthLayer");
+  if (!healthLayer) {
+    healthLayer = document.createElement("div");
+    healthLayer.id = "enemyHealthLayer";
+    Object.assign(healthLayer.style, {
+      position: "fixed",
+      inset: "0",
+      pointerEvents: "none",
+      zIndex: 1200,
+    });
+    document.body.appendChild(healthLayer);
+  }
 
   let timeSinceReplan = 0;
   let fireTimer = 0;
@@ -61,6 +83,143 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
 
     DAMAGE: ENEMY.RAM_DAMAGE ?? Math.max(ENEMY.DMG_PER_SEC * 0.6, 5),
   };
+
+  function createEnemyHealthUi() {
+    if (!healthLayer) return null;
+    const wrapper = document.createElement("div");
+    wrapper.className = "enemy-health-wrapper";
+    const bar = document.createElement("div");
+    bar.className = "enemy-health-bar";
+    const healthFill = document.createElement("div");
+    healthFill.className = "enemy-health-fill";
+    const lostFill = document.createElement("div");
+    lostFill.className = "enemy-health-lost";
+    const healFill = document.createElement("div");
+    healFill.className = "enemy-health-heal";
+
+    bar.appendChild(healthFill);
+    bar.appendChild(lostFill);
+    bar.appendChild(healFill);
+    wrapper.appendChild(bar);
+    wrapper.style.display = "none";
+    healthLayer.appendChild(wrapper);
+
+    return {
+      wrapper,
+      healthFill,
+      lostFill,
+      healFill,
+      lastPct: 1,
+    };
+  }
+
+  function animateBarSegment(segment, leftPct, widthPct, colorKeyframes) {
+    if (!segment) return;
+    segment.getAnimations().forEach((anim) => anim.cancel());
+    if (widthPct <= 0) {
+      segment.style.opacity = "0";
+      segment.style.width = "0";
+      return;
+    }
+    segment.style.left = `${Math.max(0, Math.min(100, leftPct))}%`;
+    segment.style.width = `${Math.max(0, Math.min(100, widthPct))}%`;
+    segment.style.opacity = "1";
+    const animation = segment.animate(colorKeyframes, {
+      duration: 520,
+      easing: "ease-out",
+      fill: "forwards",
+    });
+    animation.onfinish = () => {
+      segment.style.opacity = "0";
+      segment.style.width = "0";
+    };
+  }
+
+  function applyHealthDelta(enemy, delta) {
+    if (!enemy.ui) return;
+    const pct = Math.max(0, Math.min(1, enemy.hp / 100));
+    const prevPct = enemy.ui.lastPct ?? 1;
+    enemy.ui.healthFill.style.width = `${pct * 100}%`;
+
+    if (delta < -1e-3 && prevPct > pct) {
+      const diff = prevPct - pct;
+      animateBarSegment(enemy.ui.lostFill, pct * 100, diff * 100, [
+        { opacity: 1 },
+        { opacity: 0.85, offset: 0.25 },
+        { opacity: 0 },
+      ]);
+    } else if (delta > 1e-3 && pct > prevPct) {
+      const diff = pct - prevPct;
+      animateBarSegment(enemy.ui.healFill, prevPct * 100, diff * 100, [
+        { opacity: 1 },
+        { opacity: 0.7, offset: 0.35 },
+        { opacity: 0 },
+      ]);
+    }
+
+    enemy.ui.lastPct = pct;
+  }
+
+  const tmpVec = new THREE.Vector3();
+  const enemyHead = new THREE.Vector3();
+
+  function updateEnemyHealthUi(enemy) {
+    if (!enemy.ui) return;
+    if (enemy.dead) {
+      enemy.ui.wrapper.style.display = "none";
+      return;
+    }
+
+    enemyHead.copy(enemy.mesh.position);
+    enemyHead.y += BASE_RADIUS * 2;
+
+    tmpVec.copy(enemyHead).project(camera);
+    const isBehind = tmpVec.z < 0 || tmpVec.z > 1;
+    if (isBehind) {
+      enemy.ui.wrapper.style.display = "none";
+      return;
+    }
+
+    const rawScreenX = (tmpVec.x * 0.5 + 0.5) * window.innerWidth;
+    const rawScreenY = (-tmpVec.y * 0.5 + 0.5) * window.innerHeight;
+    const onScreen =
+      rawScreenX >= -40 &&
+      rawScreenX <= window.innerWidth + 40 &&
+      rawScreenY >= 0 &&
+      rawScreenY <= window.innerHeight + 40;
+  const screenX = rawScreenX;
+  const screenY = rawScreenY - 36;
+    if (!onScreen) {
+      enemy.ui.wrapper.style.display = "none";
+      return;
+    }
+
+    if (wallMeshes.length) {
+      tmpVec.copy(enemyHead).sub(camera.position);
+      const dist = tmpVec.length();
+      if (dist > 0.0001) {
+        tmpVec.normalize();
+        losRaycaster.set(camera.position, tmpVec);
+        losRaycaster.far = dist - BASE_RADIUS * 0.35;
+        const occluders = losRaycaster.intersectObjects(wallMeshes, false);
+        if (occluders.length) {
+          enemy.ui.wrapper.style.display = "none";
+          return;
+        }
+      }
+    }
+
+    enemy.ui.wrapper.style.display = "block";
+    enemy.ui.wrapper.style.left = `${screenX}px`;
+    enemy.ui.wrapper.style.top = `${screenY}px`;
+  }
+
+  function removeEnemyUi(enemy) {
+    if (enemy?.ui?.wrapper && enemy.ui.wrapper.parentElement) {
+      enemy.ui.wrapper.parentElement.removeChild(enemy.ui.wrapper);
+    }
+    enemy.ui = null;
+  }
 
   // ---------------- Pathfinding (grid BFS) ----------------
   function bfsPath(sx, sy, tx, ty) {
@@ -153,6 +312,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     mesh.castShadow = true;
     mesh.position.set(w.x, BASE_RADIUS, w.z);
     scene.add(mesh);
+    const ui = createEnemyHealthUi();
     enemies.push({
       mesh,
       gx: cell.x,
@@ -175,12 +335,17 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
       ramDir: { x: 0, z: 0 },
       ramHasHit: false,
       ramSide: Math.random() < 0.5 ? 1 : -1, // kept from your original
+      ui,
     });
+    applyHealthDelta(enemies[enemies.length - 1], 0);
     return true;
   }
 
   function reset() {
-    for (const e of enemies) scene.remove(e.mesh);
+    for (const e of enemies) {
+      scene.remove(e.mesh);
+      removeEnemyUi(e);
+    }
     enemies.length = 0;
     for (let i = 0; i < ENEMY.TARGET_COUNT; i++) spawnEnemy();
     timeSinceReplan = ENEMY.REPLAN_DT;
@@ -350,9 +515,11 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
       for (let i = enemies.length - 1; i >= 0; i--) {
         if (enemies[i].dead) {
           scene.remove(enemies[i].mesh);
+          removeEnemyUi(enemies[i]);
           enemies.splice(i, 1);
         }
       }
+      for (const e of enemies) updateEnemyHealthUi(e);
       ensureQuota();
       if (fireTimer > 0) fireTimer = Math.max(0, fireTimer - dt);
       return;
@@ -557,6 +724,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
 
     // separation
     resolveEnemyOverlaps();
+  for (const e of enemies) updateEnemyHealthUi(e);
 
     // DAMAGE: must be close horizontally AND not airborne (by calibrated offset)
     if (canDealDamage && canHitByHeight) {
@@ -575,6 +743,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     for (let i = enemies.length - 1; i >= 0; i--) {
       if (enemies[i].dead) {
         scene.remove(enemies[i].mesh);
+        removeEnemyUi(enemies[i]);
         enemies.splice(i, 1);
       }
     }
@@ -584,7 +753,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
   }
 
   // ---------------- Player attack (raycast from crosshair) ----------------
-  function performAttack(wallGroup) {
+  function performAttack(overrideWallGroup) {
     if (fireTimer > 0) return;
     fireTimer = COMBAT.FIRE_COOLDOWN;
     raycaster.setFromCamera(ndcCenter, camera);
@@ -592,7 +761,10 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
 
     const aliveMeshes = enemies.filter((e) => !e.dead).map((e) => e.mesh);
     const hitsEnemies = raycaster.intersectObjects(aliveMeshes, false);
-    const hitsWalls = raycaster.intersectObjects([wallGroup], true);
+    const blockingGroup = overrideWallGroup ?? wallGroup;
+    const hitsWalls = blockingGroup
+      ? raycaster.intersectObjects([blockingGroup], true)
+      : [];
     const wallDist = hitsWalls.length ? hitsWalls[0].distance : Infinity;
     const hit = hitsEnemies.find((h) => h.distance < wallDist);
     if (!hit) return;
@@ -603,6 +775,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     enemy.hitFlash = 0.5;
     enemy.mesh.scale.setScalar(1.2);
     setTimeout(() => enemy.mesh.scale.setScalar(1), 100);
+    applyHealthDelta(enemy, -COMBAT.HIT_DAMAGE);
     try {
       audio.play("enemy_damage", { volume: 0.9 });
     } catch (e) {
@@ -615,6 +788,7 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
         console.error("Failed to play enemy death sound:", e);
       }
       enemy.dead = true;
+      if (enemy.ui) enemy.ui.wrapper.style.display = "none";
     }
   }
 

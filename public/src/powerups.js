@@ -9,12 +9,28 @@ import { audio } from "./audio.js";
 const ENEMY_FREEZE_DURATION = 10; // seconds, adjust as needed
 const SPEEDBOOST_DURATION = 10; // seconds
 const SPEEDBOOST_MULT = 2.5;
+const COMPASS_DURATION = POWERUP.COMPASS_DURATION ?? 10;
+const COMPASS_WEIGHT = POWERUP.COMPASS_WEIGHT ?? 3;
 
 const PowerupTypes = {
+  compass: {
+    color: 0x48ffd6,
+    emissive: 0x159a7f,
+    duration: COMPASS_DURATION,
+    spawnWeight: COMPASS_WEIGHT,
+    apply(player, context = {}) {
+      context.activateCompass?.(this.duration);
+    },
+    clear(player, context = {}) {
+      context.deactivateCompass?.();
+    },
+    hud: null,
+  },
   jump: {
     color: 0x7c9cff,
     emissive: 0x2a49ff,
     duration: POWERUP.DURATION,
+    spawnWeight: 1,
     apply(player) {
       player.GRAVITY = MOVE.BASE_GRAVITY * POWERUP.GRAVITY_MULT;
       player.JUMP_V = MOVE.BASE_JUMP_V * POWERUP.JUMP_MULT;
@@ -39,6 +55,7 @@ const PowerupTypes = {
     color: 0xcccccc,
     emissive: 0x555555,
     duration: ENEMY_FREEZE_DURATION,
+    spawnWeight: 1,
     apply(player, { enemiesCtl }) {
       if (!enemiesCtl) return;
       enemiesCtl.setFrozen(true);
@@ -63,6 +80,7 @@ const PowerupTypes = {
     color: 0x4dff7c,
     emissive: 0x1bff66,
     duration: SPEEDBOOST_DURATION,
+    spawnWeight: 1,
     apply(player) {
       player.MAX_SPEED = player.MAX_SPEED * SPEEDBOOST_MULT;
       player.ACCEL = player.ACCEL * SPEEDBOOST_MULT;
@@ -87,6 +105,7 @@ const PowerupTypes = {
     color: 0xff0000,
     emissive: 0xff0000,
     duration: 0.1, // instant effect, short timer for removal
+    spawnWeight: 0.5,
     apply(player) {
       player.setHealth(player.health + 10);
     },
@@ -193,6 +212,29 @@ class Powerup {
 export function initPowerups(scene, maze, enemiesCtl) {
   const powerups = [];
   const active = [];
+  const compassState = {
+    active: false,
+    timeLeft: 0,
+    duration: COMPASS_DURATION,
+  };
+
+  const activateCompass = (duration = COMPASS_DURATION) => {
+    compassState.active = true;
+    compassState.duration = duration;
+    compassState.timeLeft = duration;
+  };
+
+  const deactivateCompass = () => {
+    compassState.active = false;
+    compassState.timeLeft = 0;
+  };
+
+  const updateCompassTime = (timeLeft) => {
+    compassState.timeLeft = Math.max(0, timeLeft);
+    if (compassState.timeLeft <= 0) {
+      deactivateCompass();
+    }
+  };
 
   function scatter() {
     // remove old
@@ -214,7 +256,23 @@ export function initPowerups(scene, maze, enemiesCtl) {
     let placed = 0;
     const minCellGap = 3;
     const chosen = [];
-    const types = Object.keys(PowerupTypes);
+    const typeEntries = Object.entries(PowerupTypes).map(([name, def]) => ({
+      name,
+      weight: def.spawnWeight ?? 1,
+    }));
+    const totalWeight = typeEntries.reduce((sum, entry) => sum + entry.weight, 0) || 1;
+
+    const pickTypeName = () => {
+      const r = Math.random() * totalWeight;
+      let acc = 0;
+      for (const entry of typeEntries) {
+        acc += entry.weight;
+        if (r <= acc) return entry.name;
+      }
+      return typeEntries[0]?.name ?? "jump";
+    };
+
+    let guaranteeCompass = true;
     for (const c of cells) {
       if (placed >= POWERUP.COUNT) break;
       const ok = chosen.every(
@@ -222,10 +280,20 @@ export function initPowerups(scene, maze, enemiesCtl) {
       );
       if (!ok) continue;
       chosen.push(c);
-      // cycle types for demo, or randomize
-      const typeName = types[placed % types.length];
-      powerups.push(new Powerup(PowerupTypes[typeName], c.x, c.y, scene));
+      const typeName = guaranteeCompass
+        ? "compass"
+        : pickTypeName();
+      guaranteeCompass = false;
+      const powerupType = PowerupTypes[typeName] ?? PowerupTypes.jump;
+      powerups.push(new Powerup(powerupType, c.x, c.y, scene));
       placed++;
+    }
+
+    if (!powerups.some((p) => p.mesh.userData?.kind === "compass") && powerups.length) {
+      const target = powerups[0];
+      const { gx, gy } = target;
+      scene.remove(target.mesh);
+      powerups[0] = new Powerup(PowerupTypes.compass, gx, gy, scene);
     }
   }
 
@@ -262,7 +330,12 @@ export function initPowerups(scene, maze, enemiesCtl) {
         activatePowerup(p.type, player);
         // play pickup sound if audio manager loaded
         try {
-          audio.play("powerup_pick", { volume: 0.1 });
+          const kind = p.mesh?.userData?.kind;
+          if (kind === "compass") {
+            audio.play("compass_pick", { volume: 0.2 });
+          } else {
+            audio.play("powerup_pick", { volume: 0.1 });
+          }
         } catch (e) {}
       }
     }
@@ -272,8 +345,14 @@ export function initPowerups(scene, maze, enemiesCtl) {
       const a = active[i];
       a.timeLeft -= dt;
       if (a.type.hud) a.type.hud.show(a.timeLeft);
+      if (a.type === PowerupTypes.compass) {
+        updateCompassTime(a.timeLeft);
+      }
       if (a.timeLeft <= 0) {
-        a.type.clear(player, { enemiesCtl });
+        a.type.clear(player, {
+          enemiesCtl,
+          deactivateCompass,
+        });
         if (a.type.hud) a.type.hud.hide();
         active.splice(i, 1);
       }
@@ -284,20 +363,35 @@ export function initPowerups(scene, maze, enemiesCtl) {
     const found = active.find((a) => a.type === type);
     if (found) {
       found.timeLeft = type.duration;
+      if (type === PowerupTypes.compass) activateCompass(type.duration);
     } else {
-      type.apply(player, { enemiesCtl });
+      type.apply(player, {
+        enemiesCtl,
+        activateCompass,
+        deactivateCompass,
+      });
       active.push({ type, timeLeft: type.duration });
       if (type.hud) type.hud.show(type.duration);
     }
   }
   function reset(player) {
     for (const a of active) {
-      a.type.clear(player, { enemiesCtl });
+      a.type.clear(player, {
+        enemiesCtl,
+        deactivateCompass,
+      });
       if (a.type.hud) a.type.hud.hide();
     }
     active.length = 0;
+    deactivateCompass();
     scatter();
   }
 
-  return { powerups, update, reset, scatter };
+  return {
+    powerups,
+    update,
+    reset,
+    scatter,
+    getCompassState: () => compassState,
+  };
 }

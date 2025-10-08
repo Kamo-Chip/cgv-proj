@@ -48,6 +48,8 @@ export const POWERUP = {
   JUMP_MULT: 2,
   GRAVITY_MULT: 0.3,
   PICKUP_RADIUS: 0.6,
+  COMPASS_DURATION: 10,
+  COMPASS_WEIGHT: 3,
 };
 
 export const WEAPON = {

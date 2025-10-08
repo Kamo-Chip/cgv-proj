@@ -190,6 +190,52 @@
       .action-hint.show {
         display: flex;
       }
+
+      #enemyHealthLayer {
+        pointer-events: none;
+      }
+      .enemy-health-wrapper {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        width: 120px;
+      }
+      .enemy-health-bar {
+        position: relative;
+        width: 100%;
+        height: 10px;
+        border: 2px solid rgba(0, 0, 0, 0.85);
+        background: rgba(12, 16, 22, 0.7);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+      }
+      .enemy-health-bar > div {
+        position: absolute;
+        top: 0;
+        height: 100%;
+        transition: width 140ms ease-out;
+      }
+      .enemy-health-fill {
+        left: 0;
+        width: 100%;
+        background: linear-gradient(90deg, rgba(96, 255, 123, 0.95), rgba(34, 187, 78, 0.95));
+        box-shadow: 0 0 10px rgba(57, 205, 92, 0.65);
+      }
+      .enemy-health-lost {
+        left: 0;
+        width: 0;
+        background: rgba(255, 64, 64, 0.85);
+        box-shadow: 0 0 12px rgba(255, 64, 64, 0.75);
+        opacity: 0;
+      }
+      .enemy-health-heal {
+        left: 0;
+        width: 0;
+        background: rgba(255, 255, 255, 0.6);
+        box-shadow: 0 0 12px rgba(0, 160, 255, 0.65);
+        opacity: 0;
+      }
     </style>
   </head>
   <body>
