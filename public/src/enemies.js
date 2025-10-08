@@ -221,6 +221,19 @@ export function initEnemies(
     enemy.ui = null;
   }
 
+  function applyDamage(enemy, amount) {
+    if (!enemy || enemy.dead) return;
+    enemy.hp -= amount;
+    enemy.hitFlash = 0.5;
+    enemy.mesh.scale.setScalar(1.2);
+    setTimeout(() => enemy.mesh.scale.setScalar(1), 100);
+    applyHealthDelta(enemy, -amount);
+    if (enemy.hp <= 0 && !enemy.dead) {
+      enemy.dead = true;
+      if (enemy.ui) enemy.ui.wrapper.style.display = "none";
+    }
+  }
+
   // ---------------- Pathfinding (grid BFS) ----------------
   function bfsPath(sx, sy, tx, ty) {
     if (sx === tx && sy === ty) return [{ gx: sx, gy: sy }];
@@ -792,5 +805,5 @@ export function initEnemies(
     }
   }
 
-  return { enemies, reset, update, performAttack, setFrozen };
+  return { enemies, reset, update, performAttack, setFrozen, applyDamage };
 }

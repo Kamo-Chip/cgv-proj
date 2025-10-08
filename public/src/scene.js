@@ -1,29 +1,7 @@
 // src/scene.js
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { WORLD } from "./constants.js";
-
-function createRadialTexture(innerColor, outerColor, size = 256) {
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  const gradient = ctx.createRadialGradient(
-    size / 2,
-    size / 2,
-    0,
-    size / 2,
-    size / 2,
-    size / 2
-  );
-  gradient.addColorStop(0, innerColor);
-  gradient.addColorStop(1, outerColor);
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, size, size);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.needsUpdate = true;
-  return texture;
-}
+import { WORLD, MAZE } from "./constants.js";
 
 export function createScene() {
   const scene = new THREE.Scene();
@@ -54,169 +32,154 @@ export function createScene() {
   dir.shadow.camera.far = 80;
   scene.add(hemi, dir);
 
-  // Ground + helper grid
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(300, 300),
-    new THREE.MeshStandardMaterial({ color: 0x1b2431, roughness: 0.95 })
+  // Ground floor using GLB asset
+  const loader = new GLTFLoader();
+  loader.load(
+    "/models/items/floor_asset_low_poly.glb",
+    (gltf) => {
+      const floorModel = gltf.scene;
+      
+      // Get the bounding box of the original model to determine size
+      const box = new THREE.Box3().setFromObject(floorModel);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      
+      // Calculate how many tiles we need to cover the maze area (42x42 units)
+      const mazeSize = MAZE.W * MAZE.CELL; // 21 * 2 = 42
+      const tilesX = Math.ceil((mazeSize * 1.5) / size.x);
+      const tilesZ = Math.ceil((mazeSize * 1.5) / size.z);
+      
+      // Create instanced mesh for efficiency
+      let floorGeometry = null;
+      let floorMaterial = null;
+      
+      floorModel.traverse((child) => {
+        if (child.isMesh && !floorGeometry) {
+          floorGeometry = child.geometry;
+          floorMaterial = child.material;
+          if (floorMaterial) {
+            floorMaterial.roughness = 0.85;
+            floorMaterial.metalness = 0.1;
+          }
+        }
+      });
+      
+      if (floorGeometry && floorMaterial) {
+        const instanceCount = tilesX * tilesZ;
+        const instancedMesh = new THREE.InstancedMesh(
+          floorGeometry,
+          floorMaterial,
+          instanceCount
+        );
+        instancedMesh.receiveShadow = true;
+        instancedMesh.castShadow = false;
+        
+        const matrix = new THREE.Matrix4();
+        const offsetX = -(tilesX * size.x) / 2;
+        const offsetZ = -(tilesZ * size.z) / 2;
+        
+        let index = 0;
+        for (let x = 0; x < tilesX; x++) {
+          for (let z = 0; z < tilesZ; z++) {
+            matrix.makeTranslation(
+              offsetX + x * size.x + size.x / 2,
+              0,
+              offsetZ + z * size.z + size.z / 2
+            );
+            instancedMesh.setMatrixAt(index++, matrix);
+          }
+        }
+        instancedMesh.instanceMatrix.needsUpdate = true;
+        scene.add(instancedMesh);
+      } else {
+        // Fallback: just use the model as-is, scaled up
+        floorModel.position.set(0, 0, 0);
+        const scale = mazeSize / Math.max(size.x, size.z);
+        floorModel.scale.setScalar(scale);
+        floorModel.traverse((child) => {
+          if (child.isMesh) {
+            child.receiveShadow = true;
+            child.castShadow = false;
+          }
+        });
+        scene.add(floorModel);
+      }
+    },
+    undefined,
+    (error) => {
+      console.error("Error loading floor asset:", error);
+      // Fallback to simple plane
+      const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(300, 300),
+        new THREE.MeshStandardMaterial({ color: 0x1b2431, roughness: 0.95 })
+      );
+      ground.rotation.x = -Math.PI / 2;
+      ground.receiveShadow = true;
+      scene.add(ground);
+    }
   );
-  ground.rotation.x = -Math.PI / 2;
-  ground.receiveShadow = true;
-  scene.add(ground);
 
   const grid = new THREE.GridHelper(300, 150, 0x3b8cff, 0x314055);
   grid.material.opacity = 0.2;
   grid.material.transparent = true;
   scene.add(grid);
 
-  const celestialGroup = new THREE.Group();
-  celestialGroup.name = "CelestialGroup";
-  scene.add(celestialGroup);
-
-  const loader = new GLTFLoader();
-  const skyboxPath = encodeURI(
-    "./models/items/billions_stars_skybox_hdri_panorama (1).glb"
-  );
-  loader.load(
-    skyboxPath,
-    (gltf) => {
-      try {
-        const sky = gltf.scene;
-        if (!sky) return;
-        sky.name = "SkyDome";
-
-        const bbox = new THREE.Box3().setFromObject(sky);
-        const size = bbox.getSize(new THREE.Vector3());
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const targetSize = 400;
-        if (maxDim > 0) {
-          const s = targetSize / maxDim;
-          sky.scale.setScalar(s);
-        } else {
-          sky.scale.setScalar(100);
-        }
-
-        const center = bbox.getCenter(new THREE.Vector3());
-        sky.position.sub(center);
-
-        sky.traverse((child) => {
-          if (child.isMesh) {
-            const materials = Array.isArray(child.material)
-              ? child.material
-              : [child.material];
-            for (let i = 0; i < materials.length; i++) {
-              const mat = materials[i];
-              if (!mat) continue;
-              const basicMat = new THREE.MeshBasicMaterial({
-                map: mat.map ?? null,
-                color: mat.color ? mat.color.clone() : new THREE.Color(0xffffff),
-                side: THREE.BackSide,
-                fog: false,
-                depthWrite: false,
-                toneMapped: false,
-                transparent: mat.transparent ?? false,
-                opacity: mat.opacity ?? 1,
-              });
-              if (Array.isArray(child.material)) {
-                child.material[i] = basicMat;
-              } else {
-                child.material = basicMat;
-              }
-            }
-            child.castShadow = false;
-            child.receiveShadow = false;
-          }
-        });
-
-        celestialGroup.add(sky);
-      } catch (err) {
-        console.warn("Failed to process skybox glb", err);
-      }
-    },
-    undefined,
-    (err) => console.warn("Skybox load failed", err)
-  );
-
-  const starTexture = createRadialTexture(
-    "rgba(255,255,255,0.95)",
-    "rgba(255,255,255,0)"
-  );
-  const starCount = 1800;
-  const starPositions = new Float32Array(starCount * 3);
-  for (let i = 0; i < starCount; i++) {
-    const radius = 220 + Math.random() * 160;
-    const u = Math.random();
-    const v = Math.random();
-    const theta = 2 * Math.PI * u;
-    const phi = Math.acos(2 * v - 1);
-    const sinPhi = Math.sin(phi);
-    starPositions[i * 3] = radius * sinPhi * Math.cos(theta);
-    starPositions[i * 3 + 1] = radius * Math.cos(phi);
-    starPositions[i * 3 + 2] = radius * sinPhi * Math.sin(theta);
-  }
-  const starGeometry = new THREE.BufferGeometry();
-  starGeometry.setAttribute(
-    "position",
-    new THREE.BufferAttribute(starPositions, 3)
-  );
-  const starMaterial = new THREE.PointsMaterial({
-    map: starTexture,
-    color: 0xffffff,
-    size: 1.6,
-    sizeAttenuation: true,
-    transparent: true,
-    alphaTest: 0.1,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    fog: false,
-    opacity: 0.9,
-  });
-  starMaterial.toneMapped = false;
-  const starField = new THREE.Points(starGeometry, starMaterial);
-  starField.name = "StarField";
-  celestialGroup.add(starField);
-
-  const moon = new THREE.Mesh(
-    new THREE.SphereGeometry(14, 48, 48),
-    new THREE.MeshStandardMaterial({
-      color: 0xfaf6d1,
-      emissive: 0xece6bb,
-      emissiveIntensity: 2,
-      roughness: 0.25,
-      metalness: 0,
-      fog: false,
-    })
-  );
-  moon.name = "Moon";
-  moon.position.set(-140, 160, -240);
-  moon.castShadow = false;
-  moon.receiveShadow = false;
-  moon.material.toneMapped = false;
-  celestialGroup.add(moon);
-
-  const moonGlowTexture = createRadialTexture(
-    "rgba(255,250,226,0.9)",
-    "rgba(255,250,226,0)"
-  );
-  const moonGlow = new THREE.Sprite(
-    new THREE.SpriteMaterial({
-      map: moonGlowTexture,
+  const addStarField = () => {
+    const starCount = 1400;
+    const radiusMin = 160;
+    const radiusMax = 220;
+    const positions = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const r = radiusMin + Math.random() * (radiusMax - radiusMin);
+      const sinPhi = Math.sin(phi);
+      const cosPhi = Math.cos(phi);
+      positions[i * 3 + 0] = r * sinPhi * Math.cos(theta);
+      positions[i * 3 + 1] = r * cosPhi;
+      positions[i * 3 + 2] = r * sinPhi * Math.sin(theta);
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    const material = new THREE.PointsMaterial({
       color: 0xffffff,
+      size: 1.6,
+      sizeAttenuation: true,
       transparent: true,
+      opacity: 0.85,
       depthWrite: false,
-      fog: false,
-      blending: THREE.AdditiveBlending,
-    })
-  );
-  moonGlow.name = "MoonGlow";
-  moonGlow.scale.set(110, 110, 1);
-  moonGlow.position.copy(moon.position);
-  moonGlow.material.toneMapped = false;
-  celestialGroup.add(moonGlow);
+    });
+    const stars = new THREE.Points(geometry, material);
+    stars.renderOrder = -5;
+    stars.frustumCulled = false;
+    scene.add(stars);
+  };
 
-  const moonLight = new THREE.PointLight(0xf7f0c4, 0.35, 400, 2.2);
-  moonLight.name = "MoonLight";
-  moonLight.position.copy(moon.position);
-  celestialGroup.add(moonLight);
+  const addMoon = () => {
+    const moonGroup = new THREE.Group();
+    const moon = new THREE.Mesh(
+      new THREE.SphereGeometry(8, 40, 40),
+      new THREE.MeshStandardMaterial({
+        color: 0xfdf5ce,
+        emissive: 0xfbe4a0,
+        emissiveIntensity: 2.2,
+        roughness: 0.35,
+        metalness: 0,
+      })
+    );
+    moon.castShadow = false;
+    moon.receiveShadow = false;
+    moonGroup.add(moon);
+    moonGroup.position.set(-70, 115, -55);
+    scene.add(moonGroup);
+
+    const moonLight = new THREE.PointLight(0xfbe8b4, 0.55, 210, 1.4);
+    moonLight.position.copy(moonGroup.position);
+    scene.add(moonLight);
+  };
+
+  addStarField();
+  addMoon();
 
   // Resize
   addEventListener("resize", () => {

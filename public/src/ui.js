@@ -9,6 +9,10 @@ export function createHUD() {
   const playBtn = document.getElementById("playBtn");
   const fill = document.getElementById("healthfill");
   const text = document.getElementById("healthtext");
+  const compassHint = document.getElementById("compassHint");
+  const compassArrow = compassHint?.querySelector(".compass-arrow");
+  const compassDistance = document.getElementById("compassDistance");
+  const compassTimer = document.getElementById("compassTimer");
 
   // ---------------------------------------
   // Settings Button (top-right)
@@ -406,6 +410,32 @@ export function createHUD() {
     updateWeapon,
     showSettings,
     onMasterVol, onSfxVol, onMusicVol, onToggleAudio, onCloseSettings,
-    triggerDamageFlash
+    triggerDamageFlash,
+    updateCompassHint({
+      active = false,
+      angle = 0,
+      distance = 0,
+      timeLeft = 0,
+      duration = 1,
+    } = {}) {
+      if (!compassHint) return;
+      if (!active) {
+        compassHint.classList.remove("show");
+        compassHint.setAttribute("aria-hidden", "true");
+        compassHint.style.setProperty("--compass-intensity", "0");
+        return;
+      }
+      compassHint.classList.add("show");
+      compassHint.setAttribute("aria-hidden", "false");
+      const clampedAngle = ((angle % 360) + 360) % 360;
+      if (compassArrow)
+        compassArrow.style.transform = `translate(-50%, -50%) rotate(${clampedAngle.toFixed(1)}deg)`;
+      if (compassDistance)
+        compassDistance.textContent = `${Math.max(0, distance).toFixed(1)}m`;
+      if (compassTimer)
+        compassTimer.textContent = `${Math.max(0, timeLeft).toFixed(1)}s`;
+      const intensity = duration > 0 ? Math.max(0, Math.min(1, timeLeft / duration)) : 0;
+      compassHint.style.setProperty("--compass-intensity", intensity.toFixed(3));
+    },
   };
 }

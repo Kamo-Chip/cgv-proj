@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { audio } from "./audio.js";
-import { MAZE } from "./constants.js";
+import { MAZE, POWERUP } from "./constants.js";
 import { createLookControls } from "./controls.js";
 import { initEnemies } from "./enemies.js";
 import {
@@ -17,9 +17,11 @@ import { createScene } from "./scene.js";
 import { createHUD } from "./ui.js";
 import { gridToWorld } from "./utils.js";
 import { initWeapons } from "./weapons.js";
+import { createPlayerAvatar, AVATAR_HEIGHT } from "./player-avatar.js";
 
 const { scene, renderer, camera } = createScene();
 const hud = createHUD();
+hud.updateCompassHint?.({ active: false });
 
 // Create look controls (pointer lock + look state) — required by Player and other systems
 const { look, lockPointer } = createLookControls(renderer, camera);
@@ -29,15 +31,10 @@ const cameraShake = createCameraShake(camera);
 
 import { createThirdPersonCamera } from "./controls.js";
 
-// Player model (the cube for third-person view)
-const playerModelGeo = new THREE.BoxGeometry(0.8, 1.8, 0.8);
-const playerModelMat = new THREE.MeshStandardMaterial({
-  color: 0xeeeeee,
-  roughness: 0.8,
-});
-const playerModel = new THREE.Mesh(playerModelGeo, playerModelMat);
-playerModel.castShadow = true;
+// Player model (stylized skin-compatible avatar for third-person view)
+const playerModel = createPlayerAvatar({ skinUrl: "https://minotar.net/skin/D_Luc" });
 scene.add(playerModel);
+playerModel.visible = false;
 
 let cameraMode = "first"; // 'first' or 'third'
 let thirdPersonCam = null;
@@ -135,6 +132,36 @@ scene.add(door);
 let doorOpen = false;
 let doorAnimY = door.position.y;
 
+const exitBeacon = new THREE.Mesh(
+  new THREE.CylinderGeometry(1.4, 1.4, 12, 24, 1, true),
+  new THREE.MeshBasicMaterial({
+    color: 0x48ffd6,
+    transparent: true,
+    opacity: 0.32,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  })
+);
+const exitBeaconMaterial = exitBeacon.material;
+exitBeacon.position.set(exitWorld.x, 6.5, exitWorld.z);
+exitBeacon.visible = false;
+scene.add(exitBeacon);
+
+const exitBeaconBase = new THREE.Mesh(
+  new THREE.CircleGeometry(1.6, 36),
+  new THREE.MeshBasicMaterial({
+    color: 0x48ffd6,
+    transparent: true,
+    opacity: 0.35,
+    depthWrite: false,
+  })
+);
+const exitBeaconBaseMaterial = exitBeaconBase.material;
+exitBeaconBase.rotation.x = -Math.PI / 2;
+exitBeaconBase.position.set(exitWorld.x, 0.05, exitWorld.z);
+exitBeaconBase.visible = false;
+scene.add(exitBeaconBase);
+
 // Player
 const player = new Player(camera, walls, look, hud);
 player.setHealth(100);
@@ -219,6 +246,9 @@ async function resetGame() {
   door.position.y = DOOR_H / 2;
   doorOpen = false;
   doorAnimY = door.position.y;
+  exitBeacon.visible = false;
+  exitBeaconBase.visible = false;
+  hud.updateCompassHint?.({ active: false });
   if (document.pointerLockElement !== renderer.domElement) hud.showStart(true);
 }
 
@@ -348,13 +378,47 @@ async function startGame() {
       checkKeyCollection();
     }
 
-    // Update the visible player model to match the true player position and orientation
-    playerModel.position.copy(playerPositionForCam);
-    playerModel.position.y -= playerModel.geometry.parameters.height / 2;
+    const compassState = powerupsCtl.getCompassState?.();
+    const compassActive = compassState?.active && (compassState.timeLeft ?? 0) > 0;
+    if (compassActive) {
+      const toExitX = exitWorld.x - camera.position.x;
+      const toExitZ = exitWorld.z - camera.position.z;
+      const distance = Math.hypot(toExitX, toExitZ);
+      const heading = Math.atan2(toExitX, toExitZ);
+      const relative = heading - look.yaw;
+      const angleDeg = THREE.MathUtils.radToDeg(relative);
+
+      hud.updateCompassHint?.({
+        active: true,
+        angle: angleDeg,
+        distance,
+        timeLeft: compassState.timeLeft ?? 0,
+        duration: compassState.duration ?? POWERUP.COMPASS_DURATION,
+      });
+
+      exitBeacon.visible = true;
+      exitBeaconBase.visible = true;
+      const pulse = Math.sin(now * 0.006);
+      const scale = 1 + 0.12 * Math.sin(now * 0.0045);
+      exitBeacon.scale.set(scale, 1, scale);
+      exitBeaconMaterial.opacity = 0.22 + 0.16 * pulse;
+      exitBeaconBaseMaterial.opacity = 0.32 + 0.22 * Math.sin(now * 0.0055);
+      exitBeaconBase.scale.setScalar(1 + 0.18 * Math.sin(now * 0.004));
+    } else {
+      hud.updateCompassHint?.({ active: false });
+      exitBeacon.visible = false;
+      exitBeaconBase.visible = false;
+    }
+
+  // Update the visible player model to match the true player position and orientation
+  playerModel.position.copy(playerPositionForCam);
+  playerModel.position.y -= AVATAR_HEIGHT / 2;
+
+  const moveSpeed = player.vel.length();
+  playerModel.userData.animate?.(now * 0.001, moveSpeed);
 
     // --- MODIFIED: Make player model face its movement direction ---
     if (cameraMode === "third") {
-      const moveSpeed = player.vel.length();
       // Only update rotation if moving to prevent snapping back to a default angle
       if (moveSpeed > 0.01) {
         // player.vel is a Vector2 where .x is world X and .y is world Z

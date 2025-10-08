@@ -449,27 +449,30 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
       const pdx = camera.position.x;
       const pdz = camera.position.z;
       const enemies = enemiesCtl.enemies;
+      let hitAny = false;
       for (const e of enemies) {
         if (e.dead) continue;
         const d = Math.hypot(pdx - e.mesh.position.x, pdz - e.mesh.position.z);
         if (d <= range) {
-          try {
-            audio.play(`enemy_damage`, { volume: 0.9 });
-          } catch (e) {
-            console.error("Failed to play enemy damage sound:", e);
-          }
-          e.hp -= wt.damage;
-          e.hitFlash = 0.5;
-          e.mesh.scale.setScalar(1.2);
-          setTimeout(() => e.mesh.scale.setScalar(1), 100);
-          if (e.hp <= 0 && !e.dead) {
-            try {
-              audio.play(`enemy_death`, { volume: 0.9 });
-            } catch (e) {
-              console.error("Failed to play enemy death sound:", e);
+          hitAny = true;
+          if (typeof enemiesCtl.applyDamage === "function") {
+            enemiesCtl.applyDamage(e, wt.damage);
+          } else {
+            e.hp -= wt.damage;
+            e.hitFlash = 0.5;
+            e.mesh.scale.setScalar(1.2);
+            setTimeout(() => e.mesh.scale.setScalar(1), 100);
+            if (e.hp <= 0 && !e.dead) {
+              e.dead = true;
             }
-            e.dead = true;
           }
+        }
+      }
+      if (hitAny) {
+        try {
+          audio.play(`enemy_damage`, { volume: 0.9 });
+        } catch (err) {
+          console.error("Failed to play enemy damage sound:", err);
         }
       }
 
