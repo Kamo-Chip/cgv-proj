@@ -168,6 +168,7 @@ player.setHealth(100);
 player.resetToStart(1, 1, door.position);
 // Initialize our position tracker
 playerPositionForCam.copy(camera.position);
+let wasGrounded = player.grounded;
 
 // Enemies
 let lost = false,
@@ -185,6 +186,9 @@ function onPlayerDamage(dmg) {
     } catch (e) {
       console.error("Failed to play level_lose sound:", e);
     }
+    playerModel.userData.triggerAction?.("death");
+    cameraMode = "third";
+    playerModel.visible = true;
     lost = true;
     hud.showLose();
   }
@@ -195,7 +199,7 @@ const enemiesCtl = initEnemies(scene, camera, wallGroup, walls, maze, onPlayerDa
 const powerupsCtl = initPowerups(scene, maze, enemiesCtl);
 
 // Weapons
-const weaponsCtl = initWeapons(scene, maze, walls, enemiesCtl, hud, camera);
+const weaponsCtl = initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerModel);
 
 // Minimap
 const minimap = createMinimap(
@@ -222,10 +226,12 @@ async function resetGame() {
   lost = false;
   hud.hideWin();
   hud.hideLose();
+  cameraMode = "first";
   player.setHealth(100);
   player.resetToStart(1, 1, door.position);
   // Sync position tracker on reset
   playerPositionForCam.copy(camera.position);
+  wasGrounded = player.grounded;
   player.resetKeys();
   enemiesCtl.reset();
   powerupsCtl.reset(player);
@@ -249,6 +255,8 @@ async function resetGame() {
   exitBeacon.visible = false;
   exitBeaconBase.visible = false;
   hud.updateCompassHint?.({ active: false });
+  playerModel.userData.reset?.();
+  playerModel.visible = false;
   if (document.pointerLockElement !== renderer.domElement) hud.showStart(true);
 }
 
@@ -292,6 +300,9 @@ addEventListener("mousedown", (e) => {
   if (document.pointerLockElement !== renderer.domElement) return;
   const handled = weaponsCtl.fire(enemiesCtl);
   if (!handled) {
+    if (!weaponsCtl.isEquipped()) {
+      playerModel.userData.triggerAction?.("punch");
+    }
     enemiesCtl.performAttack(wallGroup);
   }
 });
@@ -415,7 +426,12 @@ async function startGame() {
   playerModel.position.y -= AVATAR_HEIGHT / 2;
 
   const moveSpeed = player.vel.length();
-  playerModel.userData.animate?.(now * 0.001, moveSpeed);
+  playerModel.userData.animate?.({
+    dt,
+    speed: moveSpeed,
+    grounded: player.grounded,
+    maxSpeed: player.MAX_SPEED,
+  });
 
     // --- MODIFIED: Make player model face its movement direction ---
     if (cameraMode === "third") {

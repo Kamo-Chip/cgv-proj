@@ -34,8 +34,12 @@ export function createScene() {
 
   // Ground floor using GLB asset
   const loader = new GLTFLoader();
+  const FLOOR_MODEL_URL = new URL(
+    "../models/items/floor_asset_low_poly.glb",
+    import.meta.url
+  ).href;
   loader.load(
-    "/models/items/floor_asset_low_poly.glb",
+    FLOOR_MODEL_URL,
     (gltf) => {
       const floorModel = gltf.scene;
       

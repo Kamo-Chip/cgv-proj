@@ -1,390 +1,384 @@
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { MOVE } from "./constants.js";
 
-export const AVATAR_HEIGHT = 1.8;
-const PIXEL_UNIT = AVATAR_HEIGHT / 32;
-const DEFAULT_SKIN = "https://minotar.net/skin/D_Luc";
+export const AVATAR_HEIGHT = 0.22;
+const DEFAULT_MODEL = new URL(
+  "../models/items/AnimationLibrary.glb",
+  import.meta.url
+).href;
 
-const FACE_ORDER = ["right", "left", "top", "bottom", "front", "back"];
+const HAND_BONE_KEYS = [
+  "hand.r",
+  "hand_r",
+  "hand-r",
+  "r_hand",
+  "rhand",
+  "right_hand",
+  "right-hand",
+  "righthand",
+  "mixamorig_righthand",
+  "mixamorig:righthand",
+  "mixamorigrighthand",
+];
 
-function skinRegion(x, y, w, h) {
-  const texSize = 64;
-  const u0 = x / texSize;
-  const u1 = (x + w) / texSize;
-  const v1 = 1 - y / texSize;
-  const v0 = 1 - (y + h) / texSize;
-  return { u0, u1, v0, v1 };
-}
-
-function applyBoxUVs(geometry, map) {
-  const uv = geometry.attributes.uv;
-  for (let i = 0; i < FACE_ORDER.length; i++) {
-    const region = map[FACE_ORDER[i]];
-    if (!region) continue;
-    const offset = i * 8;
-    const { u0, u1, v0, v1 } = region;
-    uv.array[offset + 0] = u1;
-    uv.array[offset + 1] = v0;
-    uv.array[offset + 2] = u0;
-    uv.array[offset + 3] = v0;
-    uv.array[offset + 4] = u1;
-    uv.array[offset + 5] = v1;
-    uv.array[offset + 6] = u0;
-    uv.array[offset + 7] = v1;
-  }
-  uv.needsUpdate = true;
-}
-
-function createBox(size, map, material) {
-  const geometry = new THREE.BoxGeometry(size.x, size.y, size.z, 2, 2, 2);
-  applyBoxUVs(geometry, map);
-  return new THREE.Mesh(geometry, material);
-}
-
-const SKIN_MAP = {
-  head: {
-    size: new THREE.Vector3(8 * PIXEL_UNIT, 8 * PIXEL_UNIT, 8 * PIXEL_UNIT),
-    base: {
-      front: skinRegion(8, 8, 8, 8),
-      back: skinRegion(24, 8, 8, 8),
-      right: skinRegion(0, 8, 8, 8),
-      left: skinRegion(16, 8, 8, 8),
-      top: skinRegion(8, 0, 8, 8),
-      bottom: skinRegion(16, 0, 8, 8),
-    },
-    overlay: {
-      front: skinRegion(40, 8, 8, 8),
-      back: skinRegion(56, 8, 8, 8),
-      right: skinRegion(32, 8, 8, 8),
-      left: skinRegion(48, 8, 8, 8),
-      top: skinRegion(40, 0, 8, 8),
-      bottom: skinRegion(48, 0, 8, 8),
-    },
+const WEAPON_PRESETS = {
+  knife: {
+    position: [0.022, -0.018, 0.039],
+    rotation: [Math.PI * 0.15, Math.PI * 0.05, Math.PI * 0.6],
+    scale: 0.24,
   },
-  torso: {
-    size: new THREE.Vector3(8 * PIXEL_UNIT, 12 * PIXEL_UNIT, 4 * PIXEL_UNIT),
-    base: {
-      front: skinRegion(20, 20, 8, 12),
-      back: skinRegion(32, 20, 8, 12),
-      right: skinRegion(16, 20, 4, 12),
-      left: skinRegion(28, 20, 4, 12),
-      top: skinRegion(20, 16, 8, 4),
-      bottom: skinRegion(28, 16, 8, 4),
-    },
-    overlay: {
-      front: skinRegion(20, 36, 8, 12),
-      back: skinRegion(32, 36, 8, 12),
-      right: skinRegion(16, 36, 4, 12),
-      left: skinRegion(28, 36, 4, 12),
-      top: skinRegion(20, 32, 8, 4),
-      bottom: skinRegion(28, 32, 8, 4),
-    },
+  pistol: {
+    position: [0.01, -0.02, 0.028],
+    rotation: [-Math.PI * 0.25, 0, Math.PI * 0.1],
+    scale: 0.18,
   },
-  legLeft: {
-    size: new THREE.Vector3(4 * PIXEL_UNIT, 12 * PIXEL_UNIT, 4 * PIXEL_UNIT),
-    base: {
-      front: skinRegion(4, 20, 4, 12),
-      back: skinRegion(12, 20, 4, 12),
-      right: skinRegion(0, 20, 4, 12),
-      left: skinRegion(8, 20, 4, 12),
-      top: skinRegion(4, 16, 4, 4),
-      bottom: skinRegion(8, 16, 4, 4),
-    },
-    overlay: {
-      front: skinRegion(4, 36, 4, 12),
-      back: skinRegion(12, 36, 4, 12),
-      right: skinRegion(0, 36, 4, 12),
-      left: skinRegion(8, 36, 4, 12),
-      top: skinRegion(4, 32, 4, 4),
-      bottom: skinRegion(8, 32, 4, 4),
-    },
-  },
-  legRight: {
-    size: new THREE.Vector3(4 * PIXEL_UNIT, 12 * PIXEL_UNIT, 4 * PIXEL_UNIT),
-    base: {
-      front: skinRegion(20, 52, 4, 12),
-      back: skinRegion(28, 52, 4, 12),
-      right: skinRegion(16, 52, 4, 12),
-      left: skinRegion(24, 52, 4, 12),
-      top: skinRegion(36, 48, 4, 4),
-      bottom: skinRegion(24, 48, 4, 4),
-    },
-    overlay: {
-      front: skinRegion(4, 52, 4, 12),
-      back: skinRegion(12, 52, 4, 12),
-      right: skinRegion(0, 52, 4, 12),
-      left: skinRegion(8, 52, 4, 12),
-      top: skinRegion(4, 48, 4, 4),
-      bottom: skinRegion(8, 48, 4, 4),
-    },
-  },
-  armRight: {
-    size: new THREE.Vector3(4 * PIXEL_UNIT, 12 * PIXEL_UNIT, 4 * PIXEL_UNIT),
-    base: {
-      front: skinRegion(36, 52, 4, 12),
-      back: skinRegion(44, 52, 4, 12),
-      right: skinRegion(32, 52, 4, 12),
-      left: skinRegion(40, 52, 4, 12),
-      top: skinRegion(36, 48, 4, 4),
-      bottom: skinRegion(40, 48, 4, 4),
-    },
-    overlay: {
-      front: skinRegion(44, 36, 4, 12),
-      back: skinRegion(52, 36, 4, 12),
-      right: skinRegion(40, 36, 4, 12),
-      left: skinRegion(48, 36, 4, 12),
-      top: skinRegion(44, 32, 4, 4),
-      bottom: skinRegion(48, 32, 4, 4),
-    },
-  },
-  armLeft: {
-    size: new THREE.Vector3(4 * PIXEL_UNIT, 12 * PIXEL_UNIT, 4 * PIXEL_UNIT),
-    base: {
-      front: skinRegion(44, 20, 4, 12),
-      back: skinRegion(52, 20, 4, 12),
-      right: skinRegion(40, 20, 4, 12),
-      left: skinRegion(48, 20, 4, 12),
-      top: skinRegion(44, 16, 4, 4),
-      bottom: skinRegion(48, 16, 4, 4),
-    },
-    overlay: {
-      front: skinRegion(52, 52, 4, 12),
-      back: skinRegion(60, 52, 4, 12),
-      right: skinRegion(48, 52, 4, 12),
-      left: skinRegion(56, 52, 4, 12),
-      top: skinRegion(52, 48, 4, 4),
-      bottom: skinRegion(56, 48, 4, 4),
-    },
-  },
-  handRight: {
-    size: new THREE.Vector3(3 * PIXEL_UNIT, 3 * PIXEL_UNIT, 3 * PIXEL_UNIT),
-    base: {
-      front: skinRegion(44, 20, 4, 4),
-      back: skinRegion(52, 20, 4, 4),
-      right: skinRegion(40, 20, 4, 4),
-      left: skinRegion(48, 20, 4, 4),
-      top: skinRegion(44, 16, 4, 4),
-      bottom: skinRegion(48, 16, 4, 4),
-    },
-  },
-  handLeft: {
-    size: new THREE.Vector3(3 * PIXEL_UNIT, 3 * PIXEL_UNIT, 3 * PIXEL_UNIT),
-    base: {
-      front: skinRegion(44, 20, 4, 4),
-      back: skinRegion(52, 20, 4, 4),
-      right: skinRegion(40, 20, 4, 4),
-      left: skinRegion(48, 20, 4, 4),
-      top: skinRegion(44, 16, 4, 4),
-      bottom: skinRegion(48, 16, 4, 4),
-    },
+  default: {
+    position: [0, 0, 0],
+    rotation: [0, 0, 0],
+    scale: 1,
   },
 };
 
-function buildAvatar(materials) {
-  const { baseMaterial, overlayMaterial } = materials;
-  const group = new THREE.Group();
-  group.name = "PlayerAvatar";
-
-  const allMeshes = [];
-  const refs = {};
-
-  const legsHeight = SKIN_MAP.legLeft.size.y;
-  const torsoHeight = SKIN_MAP.torso.size.y;
-  const torsoWidth = SKIN_MAP.torso.size.x;
-  const armWidth = SKIN_MAP.armLeft.size.x;
-  const legWidth = SKIN_MAP.legLeft.size.x;
-  const handHeight = SKIN_MAP.handLeft.size.y;
-
-  const hipGap = PIXEL_UNIT * 0.5;
-  const shoulderGap = PIXEL_UNIT * 0.5;
-
-  function addPart(partKey, options) {
-    const part = SKIN_MAP[partKey];
-    const baseMesh = createBox(part.size, part.base, baseMaterial);
-    baseMesh.castShadow = true;
-    allMeshes.push(baseMesh);
-    options.container.add(baseMesh);
-    baseMesh.position.copy(options.meshOffset ?? new THREE.Vector3());
-
-    if (part.overlay) {
-      const overlayMesh = createBox(part.size, part.overlay, overlayMaterial);
-      overlayMesh.scale.setScalar(options.overlayScale ?? 1.05);
-      overlayMesh.position.copy(baseMesh.position);
-      overlayMesh.castShadow = false;
-      overlayMesh.name = `${partKey}-overlay`;
-      options.container.add(overlayMesh);
-      allMeshes.push(overlayMesh);
-    }
-
-    return baseMesh;
-  }
-
-  const torsoGroup = new THREE.Group();
-  torsoGroup.name = "AvatarTorso";
-  torsoGroup.position.set(0, legsHeight + torsoHeight / 2, 0);
-  addPart("torso", { container: torsoGroup, meshOffset: new THREE.Vector3(0, 0, 0) });
-  group.add(torsoGroup);
-  refs.torso = torsoGroup;
-  const torsoBaseY = torsoGroup.position.y;
-
-  const headPivot = new THREE.Group();
-  headPivot.name = "AvatarHead";
-  headPivot.position.set(0, legsHeight + torsoHeight, 0);
-  const headOffset = new THREE.Vector3(0, SKIN_MAP.head.size.y / 2, 0);
-  addPart("head", { container: headPivot, meshOffset: headOffset, overlayScale: 1.06 });
-  group.add(headPivot);
-  refs.head = headPivot;
-
-  // Mouth (simple mesh for expressive animation)
-  const mouthGeometry = new THREE.PlaneGeometry(2 * PIXEL_UNIT, 0.6 * PIXEL_UNIT, 1, 1);
-  const mouthMaterial = new THREE.MeshStandardMaterial({
-    color: 0xe66,
-    emissive: 0x220505,
-    roughness: 0.45,
-    metalness: 0.05,
-    side: THREE.DoubleSide,
-  });
-  const mouthMesh = new THREE.Mesh(mouthGeometry, mouthMaterial);
-  mouthMesh.position.set(0, headOffset.y - 2 * PIXEL_UNIT, SKIN_MAP.head.size.z / 2 + PIXEL_UNIT * 0.15);
-  mouthMesh.castShadow = false;
-  mouthMesh.receiveShadow = false;
-  mouthMesh.name = "AvatarMouth";
-  refs.mouth = mouthMesh;
-  headPivot.add(mouthMesh);
-
-  const leftLegPivot = new THREE.Group();
-  leftLegPivot.name = "AvatarLegLeft";
-  leftLegPivot.position.set(-(legWidth + hipGap) / 2, legsHeight, 0);
-  const legOffset = new THREE.Vector3(0, -SKIN_MAP.legLeft.size.y / 2, 0);
-  addPart("legLeft", { container: leftLegPivot, meshOffset: legOffset, overlayScale: 1.02 });
-  group.add(leftLegPivot);
-  refs.legLeft = leftLegPivot;
-
-  const rightLegPivot = new THREE.Group();
-  rightLegPivot.name = "AvatarLegRight";
-  rightLegPivot.position.set((legWidth + hipGap) / 2, legsHeight, 0);
-  addPart("legRight", { container: rightLegPivot, meshOffset: legOffset, overlayScale: 1.02 });
-  group.add(rightLegPivot);
-  refs.legRight = rightLegPivot;
-
-  const rightArmPivot = new THREE.Group();
-  rightArmPivot.name = "AvatarArmRight";
-  rightArmPivot.position.set(
-    -(torsoWidth / 2 + armWidth / 2 + shoulderGap),
-    legsHeight + torsoHeight,
-    0
-  );
-  const armOffset = new THREE.Vector3(0, -SKIN_MAP.armRight.size.y / 2, 0);
-  addPart("armRight", { container: rightArmPivot, meshOffset: armOffset, overlayScale: 1.04 });
-  group.add(rightArmPivot);
-  refs.armRight = rightArmPivot;
-
-  const leftArmPivot = new THREE.Group();
-  leftArmPivot.name = "AvatarArmLeft";
-  leftArmPivot.position.set(
-    torsoWidth / 2 + armWidth / 2 + shoulderGap,
-    legsHeight + torsoHeight,
-    0
-  );
-  addPart("armLeft", { container: leftArmPivot, meshOffset: armOffset, overlayScale: 1.04 });
-  group.add(leftArmPivot);
-  refs.armLeft = leftArmPivot;
-
-  const rightHandPivot = new THREE.Group();
-  rightHandPivot.name = "AvatarHandRight";
-  rightHandPivot.position.set(0, -SKIN_MAP.armRight.size.y + handHeight / 2, 0);
-  const handOffset = new THREE.Vector3(0, -handHeight / 2, 0);
-  addPart("handRight", { container: rightHandPivot, meshOffset: handOffset, overlayScale: 1.02 });
-  rightArmPivot.add(rightHandPivot);
-  refs.handRight = rightHandPivot;
-
-  const leftHandPivot = new THREE.Group();
-  leftHandPivot.name = "AvatarHandLeft";
-  leftHandPivot.position.set(0, -SKIN_MAP.armLeft.size.y + handHeight / 2, 0);
-  addPart("handLeft", { container: leftHandPivot, meshOffset: handOffset, overlayScale: 1.02 });
-  leftArmPivot.add(leftHandPivot);
-  refs.handLeft = leftHandPivot;
-
-  const headBasePitch = THREE.MathUtils.degToRad(10);
-  const headBaseYaw = THREE.MathUtils.degToRad(20);
-
-  const animate = (time, speed) => {
-    const walkIntensity = THREE.MathUtils.clamp(speed * 0.4, 0, 1);
-    const cycle = time * 6;
-    const swing = 0.6 * walkIntensity;
-
-    refs.armRight.rotation.x = -0.2 + Math.sin(cycle + Math.PI) * swing;
-    refs.armLeft.rotation.x = 0.2 + Math.sin(cycle) * swing;
-
-    refs.legRight.rotation.x = Math.sin(cycle + Math.PI) * 0.7 * walkIntensity;
-    refs.legLeft.rotation.x = Math.sin(cycle) * 0.7 * walkIntensity;
-
-    refs.handRight.rotation.x = Math.sin(cycle + Math.PI) * 0.35 * walkIntensity;
-    refs.handLeft.rotation.x = Math.sin(cycle) * 0.35 * walkIntensity;
-
-    refs.torso.position.y = torsoBaseY + Math.sin(cycle * 0.5) * 0.02 * walkIntensity;
-
-    const idle = Math.sin(time * 0.4) * 0.05;
-    refs.head.rotation.y = headBaseYaw + Math.sin(time * 0.6) * 0.18;
-    refs.head.rotation.x = headBasePitch + idle + walkIntensity * 0.08;
-
-    const mouthPulse = 1 + Math.max(0, Math.sin(time * 3)) * 0.35 * (0.5 + walkIntensity);
-    refs.mouth.scale.y = THREE.MathUtils.lerp(refs.mouth.scale.y, mouthPulse, 0.2);
-  };
-
-  return { group, allMeshes, animate };
+function lower(str) {
+  return (str ?? "").toLowerCase();
 }
 
-export function createPlayerAvatar({ skinUrl = DEFAULT_SKIN } = {}) {
+function findClip(clips, keywordGroups) {
+  for (const group of keywordGroups) {
+    const keys = (Array.isArray(group) ? group : [group]).map(lower);
+    const clip = clips.find((c) => keys.some((k) => lower(c.name).includes(k)));
+    if (clip) return clip;
+  }
+  return null;
+}
+
+function findClips(clips, keywordGroups) {
+  const results = [];
+  for (const group of keywordGroups) {
+    const keys = (Array.isArray(group) ? group : [group]).map(lower);
+    const matches = clips.filter((c) => keys.some((k) => lower(c.name).includes(k)));
+    for (const clip of matches) {
+      if (!results.includes(clip)) results.push(clip);
+    }
+  }
+  return results;
+}
+
+function ensureAction(mixer, clip, cache) {
+  if (!clip) return null;
+  if (!cache.has(clip)) cache.set(clip, mixer.clipAction(clip));
+  return cache.get(clip);
+}
+
+export function createPlayerAvatar({ modelUrl = DEFAULT_MODEL } = {}) {
   const root = new THREE.Group();
   root.name = "PlayerAvatarRoot";
   root.userData.height = AVATAR_HEIGHT;
   root.userData.ready = false;
   root.userData.animate = () => {};
 
-  const loader = new THREE.TextureLoader();
+  const loader = new GLTFLoader();
   loader.load(
-    skinUrl,
-    (texture) => {
-      texture.colorSpace = THREE.SRGBColorSpace;
-      texture.magFilter = THREE.NearestFilter;
-      texture.minFilter = THREE.NearestFilter;
-      texture.generateMipmaps = false;
-      texture.flipY = false;
+    modelUrl,
+    (gltf) => {
+      const model = gltf.scene;
+      if (!model) {
+        console.error("Player avatar GLB missing scene");
+        return;
+      }
 
-      const baseMaterial = new THREE.MeshStandardMaterial({
-        map: texture,
-        roughness: 0.65,
-        metalness: 0.1,
-        flatShading: false,
-      });
-      const overlayMaterial = new THREE.MeshStandardMaterial({
-        map: texture,
-        roughness: 0.5,
-        metalness: 0.05,
-        transparent: true,
-        alphaTest: 0.5,
-        depthWrite: false,
-        flatShading: false,
+      model.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+          if (child.material) {
+            child.material = child.material.clone();
+            child.material.needsUpdate = true;
+          }
+        }
       });
 
-      const { group, allMeshes, animate } = buildAvatar({ baseMaterial, overlayMaterial });
-      allMeshes.forEach((mesh) => {
-        mesh.castShadow = true;
-        mesh.receiveShadow = false;
+      const originalBox = new THREE.Box3().setFromObject(model);
+      const originalSize = new THREE.Vector3();
+      originalBox.getSize(originalSize);
+      if (originalSize.y > 0) {
+        const scale = AVATAR_HEIGHT / originalSize.y;
+        model.scale.setScalar(scale);
+      }
+
+      const scaledBox = new THREE.Box3().setFromObject(model);
+      const center = new THREE.Vector3();
+      scaledBox.getCenter(center);
+      model.position.sub(center);
+      root.add(model);
+
+      const mixer = new THREE.AnimationMixer(model);
+      const clips = gltf.animations || [];
+      const actionCache = new Map();
+      const activeOneShots = new Set();
+      const heldWeapons = new Map();
+      let isDead = false;
+
+      let handBone = null;
+      model.traverse((child) => {
+        if (!handBone && child.isBone) {
+          const name = lower(child.name);
+          if (HAND_BONE_KEYS.some((key) => name.includes(key))) handBone = child;
+        }
       });
-      root.add(group);
-      root.userData.animate = animate;
+
+      const handAnchor = new THREE.Group();
+      handAnchor.name = "AvatarHandAnchor";
+      (handBone || model).add(handAnchor);
+      handAnchor.position.set(0, 0, 0);
+      handAnchor.rotation.set(0, 0, 0);
+
+      const locomotion = {
+        idle: findClip(clips, [["idle_loop"], ["idle"], ["breath"], ["relax"]]) || clips[0] || null,
+        walk: findClip(clips, [["walk_loop"], ["walk_fwd"], ["walk"], ["locomotion"]]),
+        jog: findClip(clips, [["jog_fwd"], ["jog"]]),
+        run: findClip(clips, [["sprint_loop"], ["run_fwd"], ["run"], ["sprint"]]),
+        jumpStart: findClip(clips, [["jump_start"]]),
+        jumpLoop: findClip(clips, [["jump_loop"]]),
+        jumpLand: findClip(clips, [["jump_land"]]),
+      };
+
+      if (locomotion.idle && lower(locomotion.idle.name).includes("crouch")) {
+        const standingIdle = clips.find(
+          (c) =>
+            lower(c.name).includes("idle") &&
+            !lower(c.name).includes("crouch") &&
+            !lower(c.name).includes("sit")
+        );
+        if (standingIdle) locomotion.idle = standingIdle;
+      }
+
+      if (!locomotion.walk && locomotion.jog) locomotion.walk = locomotion.jog;
+      if (!locomotion.run) locomotion.run = locomotion.jog || locomotion.walk;
+      if (!locomotion.idle && locomotion.walk) locomotion.idle = locomotion.walk;
+
+      const actionLibrary = {
+        shoot: findClips(clips, [["pistol_shoot"], ["shoot"]]),
+        reload: findClips(clips, [["reload"], ["pistol_reload"]]),
+        aim: findClips(clips, [["aim"], ["pistol_aim"]]),
+        punch: findClips(clips, [["punch_cross"], ["punch"], ["melee"]]),
+        sword: findClips(clips, [["sword_attack"], ["sword"]]),
+        hit: findClips(clips, [["hit"], ["impact"], ["reaction"]]),
+        pickup: findClips(clips, [["pickup"], ["interact"]]),
+        interact: findClips(clips, [["interact"], ["use"]]),
+        push: findClips(clips, [["push"], ["shove"]]),
+        jumpStart: locomotion.jumpStart ? [locomotion.jumpStart] : [],
+        jumpLand: locomotion.jumpLand ? [locomotion.jumpLand] : [],
+        death: findClips(clips, [["death01"], ["death"]]),
+      };
+
+      let currentBaseClip =
+        locomotion.idle || locomotion.walk || locomotion.run || clips[0] || null;
+      let currentBaseAction = null;
+      const baseWeight = { value: 1, target: 1 };
+
+      function playBase(clip, fade = 0.25) {
+        if (isDead) return;
+        if (!clip) return;
+        if (clip === currentBaseClip && currentBaseAction) return;
+        const next = ensureAction(mixer, clip, actionCache);
+        if (!next) return;
+        next.enabled = true;
+        next.reset();
+        next.setLoop(THREE.LoopRepeat, Infinity);
+        next.clampWhenFinished = false;
+        next.fadeIn(fade).play();
+        if (currentBaseAction && currentBaseAction !== next) currentBaseAction.fadeOut(fade);
+        currentBaseClip = clip;
+        currentBaseAction = next;
+        currentBaseAction.setEffectiveWeight(baseWeight.value);
+      }
+
+      if (currentBaseClip) playBase(currentBaseClip, 0.001);
+
+      mixer.addEventListener("finished", (event) => {
+        if (!activeOneShots.has(event.action)) return;
+        const linger = event.action.userData?.linger;
+        if (!linger) {
+          activeOneShots.delete(event.action);
+          event.action.fadeOut(0.12);
+          setTimeout(() => event.action.stop(), 150);
+          if (activeOneShots.size === 0 && !isDead) baseWeight.target = 1;
+        } else if (!isDead) {
+          baseWeight.target = 1;
+        }
+      });
+
+      function randomClip(list) {
+        if (!list || list.length === 0) return null;
+        return list[Math.floor(Math.random() * list.length)];
+      }
+
+      function playOneShot(list, { fade = 0.1, weight = 0.45, linger = false } = {}) {
+        const clip = Array.isArray(list) ? randomClip(list) : list;
+        if (!clip) return false;
+        const action = ensureAction(mixer, clip, actionCache);
+        if (!action) return false;
+        action.enabled = true;
+        action.reset();
+        action.setLoop(THREE.LoopOnce, 1);
+        action.clampWhenFinished = true;
+        action.fadeIn(fade).play();
+        action.userData = action.userData || {};
+        action.userData.linger = linger;
+        baseWeight.target = Math.min(baseWeight.target, weight);
+        activeOneShots.add(action);
+        return true;
+      }
+
+      const triggerHandlers = {
+        shoot: () => playOneShot(actionLibrary.shoot, { weight: 0.35 }),
+        reload: () => playOneShot(actionLibrary.reload, { weight: 0.35 }),
+        aim: () => playOneShot(actionLibrary.aim, { weight: 0.45 }),
+        punch: () => playOneShot(actionLibrary.punch, { weight: 0.35 }),
+        sword: () => playOneShot(actionLibrary.sword, { weight: 0.35 }),
+        hit: () => playOneShot(actionLibrary.hit, { weight: 0.3 }),
+        pickup: () => playOneShot(actionLibrary.pickup, { weight: 0.5 }),
+        interact: () => playOneShot(actionLibrary.interact, { weight: 0.5 }),
+        push: () => playOneShot(actionLibrary.push, { weight: 0.5 }),
+        jumpStart: () => playOneShot(actionLibrary.jumpStart, { weight: 0.4 }),
+        jumpLand: () => playOneShot(actionLibrary.jumpLand, { weight: 0.5 }),
+        death: () => {
+          if (isDead) return false;
+          const played = playOneShot(actionLibrary.death, {
+            weight: 0,
+            fade: 0.08,
+            linger: true,
+          });
+          if (played) {
+            isDead = true;
+            baseWeight.target = 0;
+            if (currentBaseAction) currentBaseAction.fadeOut(0.12);
+          }
+          return played;
+        },
+      };
+
+      const WALK_THRESHOLD = 0.05;
+      const SPRINT_THRESHOLD = 0.35;
+
+      function resolveLocomotion(speed, grounded, maxSpeed) {
+        if (!grounded && locomotion.jumpLoop) return locomotion.jumpLoop;
+
+        const baseMax = MOVE.MAX_SPEED;
+        const currentMax = Math.max(baseMax, maxSpeed ?? baseMax);
+        const boostActive = currentMax > baseMax * 1.05;
+
+        if (boostActive && speed > SPRINT_THRESHOLD && locomotion.run) return locomotion.run;
+        if (speed > WALK_THRESHOLD && locomotion.walk) return locomotion.walk;
+        return locomotion.idle || locomotion.walk || locomotion.run || clips[0] || null;
+      }
+
+      function update({ dt = 0, speed = 0, grounded = true, maxSpeed = MOVE.MAX_SPEED } = {}) {
+        mixer.update(dt);
+
+        if (!isDead) {
+          const desiredBase = resolveLocomotion(speed, grounded, maxSpeed);
+          if (desiredBase && desiredBase !== currentBaseClip) playBase(desiredBase);
+        }
+
+        const lerp = Math.min(1, dt * 6);
+        baseWeight.value += (baseWeight.target - baseWeight.value) * lerp;
+        if (currentBaseAction) currentBaseAction.setEffectiveWeight(baseWeight.value);
+      }
+
+      root.userData.animate = (contextOrDt, maybeSpeed, maybeGrounded, maybeMaxSpeed) => {
+        if (typeof contextOrDt === "object") {
+          update(contextOrDt);
+        } else {
+          update({
+            dt: contextOrDt ?? 0,
+            speed: maybeSpeed ?? 0,
+            grounded: maybeGrounded ?? true,
+            maxSpeed: maybeMaxSpeed ?? MOVE.MAX_SPEED,
+          });
+        }
+      };
+
+      root.userData.update = update;
+
+      root.userData.triggerAction = (tag) => {
+        if (isDead && tag !== "death") return false;
+        const handler = triggerHandlers[tag];
+        if (!handler) return false;
+        const played = handler();
+        if (played) baseWeight.target = Math.min(baseWeight.target, 0.5);
+        return played;
+      };
+
+      function detachWeapon(type) {
+        if (!type) return false;
+        const key = String(type).toLowerCase();
+        const existing = heldWeapons.get(key);
+        if (!existing) return false;
+        handAnchor.remove(existing);
+        heldWeapons.delete(key);
+        return true;
+      }
+
+      root.userData.equipWeapon = (type, object) => {
+        if (!object || !type) return null;
+        const key = String(type).toLowerCase();
+        detachWeapon(key);
+        const preset = WEAPON_PRESETS[key] || WEAPON_PRESETS.default;
+        object.traverse((child) => {
+          if (child.isMesh) {
+            child.castShadow = child.receiveShadow = true;
+          }
+        });
+        object.position.set(0, 0, 0);
+        object.rotation.set(0, 0, 0);
+        object.scale.set(1, 1, 1);
+        object.position.set(...preset.position);
+        object.rotation.set(...preset.rotation);
+        if (preset.scale !== undefined) object.scale.multiplyScalar(preset.scale);
+        handAnchor.add(object);
+        heldWeapons.set(key, object);
+        return object;
+      };
+
+      root.userData.clearWeapon = (type) => detachWeapon(type);
+
+      root.userData.clearAllWeapons = () => {
+        for (const mesh of heldWeapons.values()) handAnchor.remove(mesh);
+        heldWeapons.clear();
+      };
+
+      root.userData.reset = () => {
+        mixer.stopAllAction();
+        activeOneShots.clear();
+        baseWeight.value = baseWeight.target = 1;
+        currentBaseAction = null;
+        isDead = false;
+        root.userData.clearAllWeapons();
+        if (currentBaseClip) playBase(currentBaseClip, 0.001);
+      };
+
       root.userData.ready = true;
+      root.userData.mixer = mixer;
+      root.userData.clips = clips;
+      root.userData.playClip = (name) => {
+        const clip = clips.find((c) => c.name === name);
+        if (clip) playOneShot(clip, { weight: 0.4 });
+      };
+      root.userData.isDead = () => isDead;
+      root.userData.handAnchor = handAnchor;
     },
     undefined,
     (error) => {
-      console.error("Failed to load player skin", error);
+      console.error("Failed to load player avatar model", error);
       const fallback = new THREE.Mesh(
         new THREE.BoxGeometry(0.8, AVATAR_HEIGHT, 0.8),
-        new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.8 })
+        new THREE.MeshStandardMaterial({ color: 0x9aa0b5, roughness: 0.7 })
       );
-      fallback.position.y = AVATAR_HEIGHT / 2;
       fallback.castShadow = true;
+      fallback.position.y = AVATAR_HEIGHT / 2;
       root.add(fallback);
       root.userData.animate = () => {};
       root.userData.ready = true;
