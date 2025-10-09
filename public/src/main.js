@@ -358,6 +358,16 @@ async function startGame() {
       // Store this new position in our tracker.
       playerPositionForCam.copy(camera.position);
 
+      const justLeftGround = wasGrounded && !player.grounded;
+      const justLanded = !wasGrounded && player.grounded;
+      if (justLeftGround) {
+        playerModel.userData.triggerAction?.("jumpStart");
+      }
+      if (justLanded) {
+        playerModel.userData.triggerAction?.("jumpLand");
+      }
+      wasGrounded = player.grounded;
+
       // --- NEW: Additional collision pass for the third-person model ---
       if (cameraMode === "third") {
         const R = 0.4; // Half the width of the 0.8 player cube
