@@ -106,7 +106,36 @@ export function createScene() {
             child.castShadow = false;
           }
         });
-        scene.add(floorModel);
+        // Attempt to load an external floor texture and apply it to the model's material
+        const externalFloor = "https://cdn.polyhaven.com/asset_img/primary/worn_asphalt.png?height=760&quality=780";
+        try {
+          const tLoader = new THREE.TextureLoader();
+          tLoader.load(
+            externalFloor,
+            (tex) => {
+              tex.wrapS = THREE.RepeatWrapping;
+              tex.wrapT = THREE.RepeatWrapping;
+              tex.repeat.set(tilesX * 0.5, tilesZ * 0.5);
+              tex.anisotropy = 8;
+              tex.encoding = THREE.sRGBEncoding;
+              floorModel.traverse((child) => {
+                if (child.isMesh && child.material) {
+                  child.material.map = tex;
+                  child.material.needsUpdate = true;
+                }
+              });
+              scene.add(floorModel);
+            },
+            undefined,
+            (err) => {
+              console.warn("Failed to load external floor texture, using model material:", err);
+              scene.add(floorModel);
+            }
+          );
+        } catch (e) {
+          console.warn("TextureLoader error, using model material:", e);
+          scene.add(floorModel);
+        }
       }
     },
     undefined,

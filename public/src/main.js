@@ -193,8 +193,12 @@ function onPlayerDamage(dmg) {
       console.error("Failed to play level_lose sound:", e);
     }
     playerModel.userData.triggerAction?.("death");
+    // Ensure the 3D avatar is visible and remains visible when the player dies,
+    // regardless of the current camera mode.
     cameraMode = "third";
     playerModel.visible = true;
+    // lock camera mode to third-person so the death fall is always visible
+    cameraMode = "third";
     lost = true;
     hud.showLose();
   }
