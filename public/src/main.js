@@ -175,8 +175,14 @@ let lost = false,
   won = false;
 function onPlayerDamage(dmg) {
   if (lost || won) return;
-
   hud.triggerDamageFlash();
+
+  // Play a targeted hit animation on the player avatar (if available)
+  try {
+    playerModel.userData.playClip?.("Hit_Chest");
+  } catch (e) {
+    // ignore if clip not available
+  }
 
   player.setHealth(player.health - dmg);
   cameraShake.trigger(dmg * 0.015, 8);
@@ -297,7 +303,8 @@ addEventListener("keydown", (e) => {
 });
 addEventListener("mousedown", (e) => {
   if (e.button !== 0) return;
-  if (document.pointerLockElement !== renderer.domElement) return;
+  // allow firing while in third-person mode even if pointer lock isn't active
+  if (cameraMode !== "third" && document.pointerLockElement !== renderer.domElement) return;
   const handled = weaponsCtl.fire(enemiesCtl);
   if (!handled) {
     if (!weaponsCtl.isEquipped()) {

@@ -105,17 +105,49 @@ export function buildWalls(scene, maze) {
 
   drawPattern(-u * 2.5, -u * 5);
 
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(1.5, 1);
+  const canvasTexture = new THREE.CanvasTexture(canvas);
+  canvasTexture.wrapS = THREE.RepeatWrapping;
+  canvasTexture.wrapT = THREE.RepeatWrapping;
+  canvasTexture.repeat.set(1.5, 1);
 
+  // Default material uses the procedurally-generated canvas texture.
+  // We'll attempt to load the external metal plate texture and swap it in
+  // when available (CORS permitting). If loading fails, the canvasTexture
+  // remains as a fallback.
   const mat = new THREE.MeshStandardMaterial({
-    map: texture,
+    map: canvasTexture,
     color: 0xffffff,
     roughness: 0.75,
     metalness: 0.08,
   });
+
+  // External texture URL provided by user
+  const externalTexUrl = "https://cdn.polyhaven.com/asset_img/primary/metal_plate.png?height=780";
+  try {
+    const texLoader = new THREE.TextureLoader();
+    texLoader.load(
+      externalTexUrl,
+      (tex) => {
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+        // tune tiling so the plates look reasonable on wall blocks
+        tex.repeat.set(3, 1.25);
+        // set a conservative anisotropy value; if a renderer is available you
+        // could read renderer.capabilities.getMaxAnisotropy()
+        tex.anisotropy = 8;
+        tex.encoding = THREE.sRGBEncoding;
+        mat.map = tex;
+        mat.needsUpdate = true;
+        console.log("Loaded external wall texture:", externalTexUrl);
+      },
+      undefined,
+      (err) => {
+        console.warn("Failed to load external wall texture, using canvas fallback:", err);
+      }
+    );
+  } catch (e) {
+    console.warn("TextureLoader threw an error; using canvas fallback:", e);
+  }
   const geo = new THREE.BoxGeometry(MAZE.CELL, MAZE.WALL_H, MAZE.CELL);
   const walls = [];
   const group = new THREE.Group();

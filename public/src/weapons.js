@@ -397,6 +397,14 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
           console.error("Failed to play pick sound:", e);
         }
 
+        // If the avatar is present and we're in third-person, play a reload animation
+        try {
+          // playerModel may not be in scope here; use avatar (userData) reference
+          if (avatar && avatar.playClip) avatar.playClip("Pistol_Reload");
+        } catch (e) {
+          // ignore missing clip
+        }
+
         const attachmentFactory = w.mesh.userData?.createAvatarAttachment;
         const attachment =
           (typeof attachmentFactory === "function" && attachmentFactory()) ||
