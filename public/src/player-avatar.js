@@ -243,6 +243,20 @@ export function createPlayerAvatar({ modelUrl = DEFAULT_MODEL } = {}) {
         interact: () => playOneShot(actionLibrary.interact, { weight: 0.5 }),
         push: () => playOneShot(actionLibrary.push, { weight: 0.5 }),
         jumpStart: () => playOneShot(actionLibrary.jumpStart, { weight: 0.4 }),
+        jumpHold: () => {
+          // Hold the jump loop animation
+          const clip = locomotion.jumpLoop;
+          if (!clip) return false;
+          const action = ensureAction(mixer, clip, actionCache);
+          if (!action) return false;
+          action.enabled = true;
+          action.reset();
+          action.setLoop(THREE.LoopRepeat, Infinity);
+          action.clampWhenFinished = false;
+          action.fadeIn(0.2).play();
+          baseWeight.target = 0.3;
+          return true;
+        },
         jumpLand: () => playOneShot(actionLibrary.jumpLand, { weight: 0.5 }),
         death: () => {
           if (isDead) return false;

@@ -38,12 +38,17 @@ playerModel.visible = false;
 
 let cameraMode = "first"; // 'first' or 'third'
 let thirdPersonCam = null;
+let won = false;
+let lost = false;
 
 // Create a separate Vector3 to hold the player's true position.
 // The Player class will update the camera's position, we'll copy it here,
 // and the third-person camera will use this as its target.
 const playerPositionForCam = new THREE.Vector3();
 thirdPersonCam = createThirdPersonCamera(camera, playerPositionForCam);
+
+let activeIntro = null;
+let introFinished = false;
 
 // Initialize audio (do not resume automatically; wait for user gesture)
 // We'll load sounds but not start the AudioContext until user interaction.
@@ -68,6 +73,7 @@ thirdPersonCam = createThirdPersonCamera(camera, playerPositionForCam);
       player_jump_high: "./sounds/player_jump_high.wav",
       player_step_1: "./sounds/player_step_1.wav",
       player_step_2: "./sounds/player_step_2.wav",
+      intro_cinematic: "./sounds/Cinematic Whoosh - Sound Effect (Final Cut).mp3",
     });
   } catch (e) {
     console.warn("Audio load failed (ok for dev):", e);
@@ -80,7 +86,16 @@ hud.onSfxVol((v) => audio.setSfxVolume(v));
 hud.onMusicVol((v) => audio.setMusicVolume(v));
 hud.onToggleAudio((enabled) => audio.toggleEnabled(enabled));
 
-if (hud.onCloseSettings) hud.onCloseSettings(() => hud.showSettings(false));
+if (hud.onCloseSettings) {
+  hud.onCloseSettings(() => {
+    if (reopenMenuOnSettingsClose) {
+      reopenMenuOnSettingsClose = false;
+      if (!document.pointerLockElement && !won && !lost) {
+        openMenuOverlay({ focusResume: introFinished });
+      }
+    }
+  });
+}
 
 // Ensure audio context is resumed on first user input (gesture required on many browsers)
 function onFirstGesture() {
@@ -100,6 +115,129 @@ function onFirstGesture() {
 }
 window.addEventListener("pointerdown", onFirstGesture);
 window.addEventListener("keydown", onFirstGesture);
+
+// Neural interface menu setup
+const menuOverlay = document.getElementById("menuOverlay");
+const menuGrid = document.getElementById("menuGrid");
+const initiateBtn = document.getElementById("initiateBtn");
+const resumeBtn = document.getElementById("resumeBtn");
+const menuSettingsBtn = document.getElementById("menuSettingsBtn");
+const terminateBtn = document.getElementById("terminateBtn");
+
+let menuGridIntervalId = null;
+const menuTiles = [];
+
+if (menuGrid) {
+  if (menuGrid.children.length === 0) {
+    const tileCount = 25 * 25;
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < tileCount; i++) {
+      const tile = document.createElement("span");
+      tile.className = "neural-card__grid-tile";
+      frag.appendChild(tile);
+      menuTiles.push(tile);
+    }
+    menuGrid.appendChild(frag);
+  } else {
+    menuTiles.push(...menuGrid.querySelectorAll(".neural-card__grid-tile"));
+  }
+}
+
+function startMenuGridAnim() {
+  if (!menuTiles.length || menuGridIntervalId) return;
+  menuGridIntervalId = window.setInterval(() => {
+    const tile = menuTiles[Math.floor(Math.random() * menuTiles.length)];
+    if (!tile || tile.classList.contains("is-active")) return;
+    tile.classList.add("is-active");
+    window.setTimeout(() => tile.classList.remove("is-active"), 220);
+  }, 160);
+}
+
+function stopMenuGridAnim() {
+  if (menuGridIntervalId) {
+    window.clearInterval(menuGridIntervalId);
+    menuGridIntervalId = null;
+  }
+}
+
+function setResumeButtonVisible(visible) {
+  if (!resumeBtn) return;
+  resumeBtn.style.display = visible ? "block" : "none";
+  resumeBtn.disabled = !visible;
+}
+
+let reopenMenuOnSettingsClose = false;
+
+function openMenuOverlay({ allowResume = introFinished, focusResume = false } = {}) {
+  if (!menuOverlay) return;
+  setResumeButtonVisible(allowResume);
+  menuOverlay.classList.remove("menu-hidden");
+  startMenuGridAnim();
+  hud.showStart?.(false);
+  hud.showSettings?.(false);
+  if (allowResume && focusResume) {
+    requestAnimationFrame(() => resumeBtn?.focus());
+  }
+}
+
+function closeMenuOverlay() {
+  if (!menuOverlay) return;
+  if (menuOverlay.classList.contains("menu-hidden")) return;
+  menuOverlay.classList.add("menu-hidden");
+  stopMenuGridAnim();
+  setResumeButtonVisible(false);
+}
+
+if (menuOverlay && !menuOverlay.classList.contains("menu-hidden")) {
+  startMenuGridAnim();
+}
+setResumeButtonVisible(false);
+
+if (initiateBtn) {
+  initiateBtn.addEventListener("click", async () => {
+    if (initiateBtn.disabled) return;
+    initiateBtn.disabled = true;
+    closeMenuOverlay();
+    try {
+      await playIntroSequence();
+    } finally {
+      initiateBtn.disabled = false;
+    }
+  });
+}
+
+if (resumeBtn) {
+  resumeBtn.addEventListener("click", () => {
+    closeMenuOverlay();
+    hud.showStart?.(false);
+    lockPointer();
+  });
+}
+
+if (menuSettingsBtn) {
+  menuSettingsBtn.addEventListener("click", () => {
+    if (menuSettingsBtn.disabled) return;
+    reopenMenuOnSettingsClose = true;
+    closeMenuOverlay();
+    hud.showSettings?.(true);
+  });
+}
+
+if (terminateBtn) {
+  terminateBtn.addEventListener("click", async () => {
+    if (terminateBtn.disabled) return;
+    terminateBtn.disabled = true;
+    introFinished = false;
+    setResumeButtonVisible(false);
+    try {
+      await resetGame();
+      openMenuOverlay({ allowResume: false });
+      initiateBtn && (initiateBtn.disabled = false);
+    } finally {
+      terminateBtn.disabled = false;
+    }
+  });
+}
 
 // Maze + walls
 const maze = generateMaze();
@@ -171,8 +309,6 @@ playerPositionForCam.copy(camera.position);
 let wasGrounded = player.grounded;
 
 // Enemies
-let lost = false,
-  won = false;
 function onPlayerDamage(dmg) {
   if (lost || won) return;
   hud.triggerDamageFlash();
@@ -267,23 +403,216 @@ async function resetGame() {
   hud.updateCompassHint?.({ active: false });
   playerModel.userData.reset?.();
   playerModel.visible = false;
-  if (document.pointerLockElement !== renderer.domElement) hud.showStart(true);
+  if (
+    document.pointerLockElement !== renderer.domElement &&
+    menuOverlay?.classList.contains("menu-hidden")
+  ) {
+    hud.showStart(true);
+  }
+}
+
+// Intro camera sequence (shorter, skip-able, restores first-person control)
+async function playIntroSequence() {
+  if (activeIntro) return activeIntro.promise;
+
+  let resolveIntro;
+  const promise = new Promise((resolve) => {
+    resolveIntro = resolve;
+  });
+
+  const introState = {
+    promise,
+    skipRequested: false,
+    finished: false,
+  };
+  activeIntro = introState;
+  introFinished = false;
+
+  cameraMode = "third";
+
+  const playerPos = playerPositionForCam.clone();
+
+  let introAudio = null;
+  try {
+    introAudio = audio.play?.("intro_cinematic", { volume: 0.7 });
+  } catch (e) {
+    console.warn("Intro sound failed to play:", e);
+  }
+
+  const waypoints = [
+    new THREE.Vector3(playerPos.x - 9, 4.6, playerPos.z - 9),
+    new THREE.Vector3(playerPos.x - 6.2, 3.6, playerPos.z - 5.6),
+    new THREE.Vector3(playerPos.x - 3.6, 2.8, playerPos.z - 3.0),
+    new THREE.Vector3(playerPos.x - 1.8, 2.3, playerPos.z - 1.4),
+    new THREE.Vector3(
+      playerPos.x + Math.sin(Math.PI * 0.82) * 2.7,
+      playerPos.y + 1.8,
+      playerPos.z + Math.cos(Math.PI * 0.82) * 2.7
+    ),
+    new THREE.Vector3(
+      playerPos.x + Math.sin(Math.PI * 0.6) * 2.2,
+      playerPos.y + 1.35,
+      playerPos.z + Math.cos(Math.PI * 0.6) * 2.2
+    ),
+    new THREE.Vector3(
+      playerPos.x + Math.sin(Math.PI * 0.35) * 2.0,
+      playerPos.y + 1.1,
+      playerPos.z + Math.cos(Math.PI * 0.35) * 2.0
+    ),
+    new THREE.Vector3(playerPos.x, playerPos.y + 1.0, playerPos.z - 2.0),
+  ];
+
+  const mazePhaseTime = 1.9;
+  const arrivalTime = 2.05;
+  const holdJumpTime = 1.0;
+  const arcPhaseTime = 1.6;
+  const totalDuration = mazePhaseTime + arcPhaseTime;
+  const landingTime = arrivalTime + holdJumpTime;
+
+  const lookAtTarget = new THREE.Vector3(playerPos.x, playerPos.y + 0.6, playerPos.z);
+  const tempVec = new THREE.Vector3();
+
+  const startTime = performance.now();
+  let lastFrameTime = startTime;
+  let jumpHoldTriggered = false;
+  let jumpLandTriggered = false;
+  let playerModelShown = false;
+
+  const skipActivationDelayMs = 220;
+  const allowSkipAfter = startTime + skipActivationDelayMs;
+
+  const handleKey = (e) => {
+    if (introState.finished) return;
+    if (performance.now() < allowSkipAfter) return;
+    const key = e.key?.toLowerCase();
+    if (key === " " || key === "enter" || key === "escape" || key === "skip") {
+      introState.skipRequested = true;
+    }
+  };
+  const handlePointer = () => {
+    if (introState.finished) return;
+    if (performance.now() < allowSkipAfter) return;
+    introState.skipRequested = true;
+  };
+
+  document.addEventListener("keydown", handleKey);
+  document.addEventListener("pointerdown", handlePointer);
+
+  const finalizeIntro = () => {
+    if (introState.finished) return;
+    introState.finished = true;
+    document.removeEventListener("keydown", handleKey);
+    document.removeEventListener("pointerdown", handlePointer);
+    try {
+      introAudio?.stop?.(0);
+    } catch (err) {
+      console.warn("Failed to stop intro audio:", err);
+    }
+    if (!jumpLandTriggered) {
+      playerModel.userData.triggerAction?.("jumpLand");
+      jumpLandTriggered = true;
+    }
+    camera.position.copy(waypoints[waypoints.length - 1]);
+    camera.lookAt(lookAtTarget);
+    cameraMode = "first";
+    playerModel.visible = false;
+    activeIntro = null;
+    introFinished = true;
+    resolveIntro();
+  };
+
+  function animateIntro(now) {
+    if (introState.finished) return;
+
+    const rawElapsed = (now - startTime) / 1000;
+    const elapsed = Math.min(introState.skipRequested ? totalDuration : rawElapsed, totalDuration);
+    const dt = Math.min((now - lastFrameTime) / 1000, 0.05);
+    lastFrameTime = now;
+
+    let currentPos;
+    if (elapsed < mazePhaseTime) {
+      const phase1T = elapsed / mazePhaseTime;
+      const eased = 1 - Math.pow(1 - phase1T, 3);
+      const scaledT = eased * 3;
+      const segment = Math.min(Math.floor(scaledT), 2);
+      const segmentProgress = scaledT - segment;
+      const smoothProgress = segmentProgress * segmentProgress * (3 - 2 * segmentProgress);
+      currentPos = tempVec.lerpVectors(waypoints[segment], waypoints[segment + 1], smoothProgress);
+    } else {
+      const phase2T = (elapsed - mazePhaseTime) / arcPhaseTime;
+      const eased = phase2T < 0.5
+        ? 4 * phase2T * phase2T * phase2T
+        : 1 - Math.pow(-2 * phase2T + 2, 3) / 2;
+      const scaledT = eased * 4;
+      const segment = Math.min(Math.floor(scaledT), 3) + 3;
+      const segmentProgress = scaledT - (segment - 3);
+      const smoothProgress = segmentProgress * segmentProgress * (3 - 2 * segmentProgress);
+      currentPos = tempVec.lerpVectors(
+        waypoints[segment],
+        waypoints[Math.min(segment + 1, waypoints.length - 1)],
+        smoothProgress
+      );
+    }
+
+    camera.position.copy(currentPos);
+    camera.lookAt(lookAtTarget);
+
+    if (elapsed >= arrivalTime && !jumpHoldTriggered) {
+      playerModel.visible = true;
+      playerModel.position.copy(playerPositionForCam);
+      playerModel.position.y -= AVATAR_HEIGHT / 2;
+      playerModel.userData.triggerAction?.("jumpHold");
+      jumpHoldTriggered = true;
+      playerModelShown = true;
+    }
+
+    if (elapsed >= landingTime && !jumpLandTriggered) {
+      playerModel.userData.triggerAction?.("jumpLand");
+      jumpLandTriggered = true;
+    }
+
+    if (playerModelShown) {
+      playerModel.userData.animate?.({
+        dt,
+        speed: 0,
+        grounded: jumpLandTriggered,
+        maxSpeed: player.MAX_SPEED,
+      });
+    }
+
+    if (elapsed >= totalDuration) {
+      finalizeIntro();
+      return;
+    }
+
+    requestAnimationFrame(animateIntro);
+  }
+
+  requestAnimationFrame(animateIntro);
+
+  return promise;
 }
 
 // Pointer lock & overlays
-hud.playBtn.addEventListener("click", () => {
+hud.playBtn?.addEventListener("click", () => {
   hud.showStart(false);
   hud.showSettings(false);
   lockPointer();
 });
 
-hud.settingsBtn.addEventListener("click", () => {
+hud.settingsBtn?.addEventListener("click", () => {
   hud.showSettings(true);
 });
 
 document.addEventListener("pointerlockchange", () => {
-  if (document.pointerLockElement !== renderer.domElement && !won && !lost) {
-    hud.showStart(true);
+  const locked = document.pointerLockElement === renderer.domElement;
+  if (locked) {
+    closeMenuOverlay();
+    hud.showStart?.(false);
+    return;
+  }
+  if (!won && !lost) {
+    openMenuOverlay({ allowResume: introFinished, focusResume: introFinished });
   }
 });
 

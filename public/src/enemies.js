@@ -1,6 +1,9 @@
 // src/enemies.js
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import * as SkeletonUtilsModule from "three/examples/jsm/utils/SkeletonUtils.js";
 import { ENEMY, COMBAT } from "./constants.js";
+import { AVATAR_HEIGHT } from "./player-avatar.js";
 import { gridToWorld, worldToGrid } from "./utils.js";
 import { audio } from "./audio.js";
 
@@ -12,6 +15,7 @@ export function initEnemies(
   maze,
   onPlayerDamage
 ) {
+  const SkeletonUtils = SkeletonUtilsModule.SkeletonUtils ?? SkeletonUtilsModule;
   // ---- Tunables (safe defaults; override in constants.js if you want) ----
   const MIN_PLAYER_DIST = ENEMY.MIN_PLAYER_DIST ?? 0.9; // personal-space bubble (m)
   const BASE_RADIUS = ENEMY.RADIUS ?? 0.35; // enemy sphere radius (m)
@@ -45,6 +49,10 @@ export function initEnemies(
     emissiveIntensity: 0.2,
     roughness: 0.6,
   });
+
+  function lower(str) {
+    return (str ?? "").toLowerCase();
+  }
 
   const raycaster = new THREE.Raycaster();
   const losRaycaster = new THREE.Raycaster();
@@ -170,8 +178,9 @@ export function initEnemies(
       return;
     }
 
-    enemyHead.copy(enemy.mesh.position);
-    enemyHead.y += BASE_RADIUS * 2;
+  enemyHead.copy(enemy.mesh.position);
+  const headOffset = enemy.headOffset ?? BASE_RADIUS * 2;
+  enemyHead.y += headOffset;
 
     tmpVec.copy(enemyHead).project(camera);
     const isBehind = tmpVec.z < 0 || tmpVec.z > 1;
@@ -187,8 +196,8 @@ export function initEnemies(
       rawScreenX <= window.innerWidth + 40 &&
       rawScreenY >= 0 &&
       rawScreenY <= window.innerHeight + 40;
-  const screenX = rawScreenX;
-  const screenY = rawScreenY - 36;
+    const screenX = rawScreenX;
+    const screenY = rawScreenY - 36;
     if (!onScreen) {
       enemy.ui.wrapper.style.display = "none";
       return;
@@ -225,11 +234,15 @@ export function initEnemies(
     if (!enemy || enemy.dead) return;
     enemy.hp -= amount;
     enemy.hitFlash = 0.5;
-    enemy.mesh.scale.setScalar(1.2);
-    setTimeout(() => enemy.mesh.scale.setScalar(1), 100);
+    const origScale = enemy.mesh.scale.x;
+    enemy.mesh.scale.setScalar(origScale * 1.05);
+    setTimeout(() => {
+      if (enemy.mesh) enemy.mesh.scale.setScalar(origScale);
+    }, 120);
     applyHealthDelta(enemy, -amount);
     if (enemy.hp <= 0 && !enemy.dead) {
       enemy.dead = true;
+      enemy.deathTimer = 1.2;
       if (enemy.ui) enemy.ui.wrapper.style.display = "none";
     }
   }
@@ -325,8 +338,9 @@ export function initEnemies(
     mesh.castShadow = true;
     mesh.position.set(w.x, BASE_RADIUS, w.z);
     scene.add(mesh);
+
     const ui = createEnemyHealthUi();
-    enemies.push({
+    const enemyObj = {
       mesh,
       gx: cell.x,
       gy: cell.y,
@@ -341,16 +355,16 @@ export function initEnemies(
       dead: false,
       lastWaypointDist: Infinity,
       noProgressTime: 0,
-
-      // --------- RAM FSM fields ----------
-      ramState: "chase", // "chase" | "windup" | "charge" | "backoff" | "cooldown"
+      ramState: "chase",
       ramT: 0,
       ramDir: { x: 0, z: 0 },
       ramHasHit: false,
-      ramSide: Math.random() < 0.5 ? 1 : -1, // kept from your original
+      ramSide: Math.random() < 0.5 ? 1 : -1,
       ui,
-    });
-    applyHealthDelta(enemies[enemies.length - 1], 0);
+    };
+
+    enemies.push(enemyObj);
+    applyHealthDelta(enemyObj, 0);
     return true;
   }
 
@@ -484,22 +498,22 @@ export function initEnemies(
   function setFrozen(isFrozen) {
     frozen = isFrozen;
     for (const e of enemies) {
-      if (isFrozen) {
-        e.mesh.material.color.set(0xcccccc);
-        e.mesh.material.emissive.set(0x555555);
-      } else {
-        e.mesh.material.color.set(0xff5252);
-        e.mesh.material.emissive.set(0x550000);
-      }
-    }
-  }
-
-  function enterRam(e, state, t, dirx, dirz) {
-    e.ramState = state;
-    e.ramT = t;
-    if (dirx !== undefined) {
-      e.ramDir.x = dirx;
-      e.ramDir.z = dirz;
+      const applyToMesh = (mesh) => {
+        if (!mesh) return;
+        const applyMaterial = (mat) => {
+          if (!mat) return;
+          if (mat.color) mat.color.set(isFrozen ? 0xcccccc : 0xff5252);
+          if (mat.emissive) mat.emissive.set(isFrozen ? 0x555555 : 0x550000);
+        };
+        if (mesh.traverse) {
+          mesh.traverse((n) => {
+            if (n.isMesh) applyMaterial(n.material);
+          });
+        } else if (mesh.material) {
+          applyMaterial(mesh.material);
+        }
+      };
+      applyToMesh(e.mesh);
     }
   }
 
@@ -522,15 +536,24 @@ export function initEnemies(
 
     if (frozen) {
       for (const e of enemies) {
+        if (e.dead) {
+          if (typeof e.deathTimer === "number") {
+            e.deathTimer = Math.max(0, e.deathTimer - dt);
+          }
+          continue;
+        }
         e.hitFlash = Math.max(0, e.hitFlash - dt);
-        e.mesh.material.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
+        if (e.mesh?.material?.emissive) {
+          e.mesh.material.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
+        }
       }
       for (let i = enemies.length - 1; i >= 0; i--) {
-        if (enemies[i].dead) {
-          scene.remove(enemies[i].mesh);
-          removeEnemyUi(enemies[i]);
-          enemies.splice(i, 1);
-        }
+        const enemy = enemies[i];
+        if (!enemy.dead) continue;
+        if (typeof enemy.deathTimer === "number" && enemy.deathTimer > 0) continue;
+        scene.remove(enemy.mesh);
+        removeEnemyUi(enemy);
+        enemies.splice(i, 1);
       }
       for (const e of enemies) updateEnemyHealthUi(e);
       ensureQuota();
@@ -566,13 +589,26 @@ export function initEnemies(
 
     // move enemies
     for (const e of enemies) {
-      if (e.dead) continue;
+      if (e.dead) {
+        if (e.mixer) e.mixer.update(dt);
+        if (typeof e.deathTimer === "number") {
+          e.deathTimer = Math.max(0, e.deathTimer - dt);
+        }
+        continue;
+      }
 
-      // decay hit flash
+      // decay hit flash and push emissive pulse to materials
       e.hitFlash = Math.max(0, e.hitFlash - dt);
-      e.mesh.material.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
+      if (e.mesh && e.mesh.traverse) {
+        e.mesh.traverse((n) => {
+          if (n.isMesh && n.material?.emissive) {
+            n.material.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
+          }
+        });
+      } else if (e.mesh?.material?.emissive) {
+        e.mesh.material.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
+      }
 
-      // sync grid from actual pos
       const here = worldToGrid(e.mesh.position.x, e.mesh.position.z);
       e.gx = here.gx;
       e.gy = here.gy;
@@ -628,8 +664,14 @@ export function initEnemies(
               onPlayerDamage(RAM.DAMAGE);
               e.ramHasHit = true;
               // a tiny squash/pulse
-              e.mesh.scale.setScalar(1.2);
-              setTimeout(() => e.mesh.scale.setScalar(1), 90);
+              if (e.baseScale && e.mesh) {
+                e.mesh.scale.copy(e.baseScale).multiplyScalar(1.15);
+                setTimeout(() => {
+                  if (e.mesh && e.baseScale) {
+                    e.mesh.scale.copy(e.baseScale);
+                  }
+                }, 90);
+              }
               try {
                 audio.play?.("player_damage", { volume: 0.9 });
               } catch (e) {
@@ -697,6 +739,10 @@ export function initEnemies(
         ({ nx, nz } = slideOutOfWalls(nx, nz));
         e.mesh.position.set(nx, e.mesh.position.y, nz);
         keepDistanceFromPlayer(e.mesh.position); // enforce personal space
+        if (e.mixer) {
+          const speed = Math.hypot(e.vx || 0, e.vz || 0);
+          playEnemyState(e, speed > 0.05 ? "walk" : "idle");
+        }
         continue;
       }
 
@@ -722,6 +768,7 @@ export function initEnemies(
         e.lastWaypointDist = Infinity;
         e.noProgressTime = 0;
         if (e.targetIndex < e.path.length - 1) e.targetIndex++;
+        if (e.mixer) playEnemyState(e, "idle");
         continue;
       }
 
@@ -733,11 +780,12 @@ export function initEnemies(
       e.mesh.position.x = nx;
       e.mesh.position.z = nz;
       keepDistanceFromPlayer(e.mesh.position); // enforce personal space
+      if (e.mixer) playEnemyState(e, "walk");
     }
 
     // separation
     resolveEnemyOverlaps();
-  for (const e of enemies) updateEnemyHealthUi(e);
+    for (const e of enemies) updateEnemyHealthUi(e);
 
     // DAMAGE: must be close horizontally AND not airborne (by calibrated offset)
     if (canDealDamage && canHitByHeight) {
@@ -754,11 +802,12 @@ export function initEnemies(
 
     // prune dead & top up
     for (let i = enemies.length - 1; i >= 0; i--) {
-      if (enemies[i].dead) {
-        scene.remove(enemies[i].mesh);
-        removeEnemyUi(enemies[i]);
-        enemies.splice(i, 1);
-      }
+      const enemy = enemies[i];
+      if (!enemy.dead) continue;
+      if (typeof enemy.deathTimer === "number" && enemy.deathTimer > 0) continue;
+      scene.remove(enemy.mesh);
+      removeEnemyUi(enemy);
+      enemies.splice(i, 1);
     }
     ensureQuota();
 
@@ -772,8 +821,8 @@ export function initEnemies(
     raycaster.setFromCamera(ndcCenter, camera);
     raycaster.far = COMBAT.RAYCAST_MAX;
 
-    const aliveMeshes = enemies.filter((e) => !e.dead).map((e) => e.mesh);
-    const hitsEnemies = raycaster.intersectObjects(aliveMeshes, false);
+  const aliveMeshes = enemies.filter((e) => !e.dead).map((e) => e.mesh);
+  const hitsEnemies = raycaster.intersectObjects(aliveMeshes, true);
     const blockingGroup = overrideWallGroup ?? wallGroup;
     const hitsWalls = blockingGroup
       ? raycaster.intersectObjects([blockingGroup], true)
@@ -782,26 +831,29 @@ export function initEnemies(
     const hit = hitsEnemies.find((h) => h.distance < wallDist);
     if (!hit) return;
 
-    const enemy = enemies.find((e) => e.mesh === hit.object);
+    // If the hit object is a child mesh of a templated model, it should have
+    // a back-reference to its enemy object in userData.enemy. Otherwise,
+    // fall back to matching by root mesh equality for the sphere fallback.
+    const enemy =
+      hit.object.userData?.enemy ||
+      enemies.find((candidate) => candidate.mesh === hit.object);
     if (!enemy) return;
-    enemy.hp -= COMBAT.HIT_DAMAGE;
-    enemy.hitFlash = 0.5;
-    enemy.mesh.scale.setScalar(1.2);
-    setTimeout(() => enemy.mesh.scale.setScalar(1), 100);
-    applyHealthDelta(enemy, -COMBAT.HIT_DAMAGE);
+
+    const wasAlive = !enemy.dead;
+    applyDamage(enemy, COMBAT.HIT_DAMAGE);
+
     try {
       audio.play("enemy_damage", { volume: 0.9 });
-    } catch (e) {
-      console.log(e);
+    } catch (err) {
+      console.log(err);
     }
-    if (enemy.hp <= 0 && !enemy.dead) {
+
+    if (wasAlive && enemy.dead) {
       try {
         audio.play("enemy_death", { volume: 0.9 });
-      } catch (e) {
-        console.error("Failed to play enemy death sound:", e);
+      } catch (err) {
+        console.error("Failed to play enemy death sound:", err);
       }
-      enemy.dead = true;
-      if (enemy.ui) enemy.ui.wrapper.style.display = "none";
     }
   }
 

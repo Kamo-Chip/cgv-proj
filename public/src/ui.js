@@ -86,14 +86,25 @@ export function createHUD() {
     document.body.appendChild(settingsOverlay);
   }
 
+  const settingsCloseHandlers = new Set();
+  let settingsVisible = false;
+
   function showSettings(show) {
+    if (settingsVisible === show) return;
+    settingsVisible = show;
     settingsOverlay.classList.toggle("hidden", !show);
     settingsOverlay.style.display = show ? "flex" : "none";
+    if (!show) {
+      settingsCloseHandlers.forEach((cb) => cb());
+    }
   }
+
   settingsBtn.addEventListener("click", () => showSettings(true));
   const closeSettings = document.getElementById("closeSettings");
   if (closeSettings) closeSettings.addEventListener("click", () => showSettings(false));
-  window.addEventListener("keydown", (e) => { if (e.key === "Escape") showSettings(false); });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") showSettings(false);
+  });
 
   // ---------------------------------------
   // Health bar
@@ -362,7 +373,7 @@ export function createHUD() {
       audioToggle.addEventListener("change", (e) => cb(e.target.checked));
   }
   function onCloseSettings(cb) {
-    if (closeSettings) closeSettings.addEventListener("click", cb);
+    if (typeof cb === "function") settingsCloseHandlers.add(cb);
   }
 
   // Accessibility helpers (optional)
