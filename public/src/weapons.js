@@ -128,22 +128,141 @@ class WorldWeapon {
 }
 
 export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
-  // enemiesCtl is the controller returned by initEnemies so we can access enemies array
-  const weapons = []; // world weapons scattered
+  // ====== VIEWMODEL (attached to camera; reuses your existing meshes) ======
+  const vm = (() => {
+    const root = new THREE.Group();
+    root.position.set(0.45, -0.38, -0.55); // bottom-right in camera space
+    camera.add(root);
+    if (!camera.parent) scene.add(camera); // safety: ensure camera is in scene
+
+    const anim = new THREE.Group();
+    root.add(anim);
+
+    // Keep VM always visible on top and not culled (preserves your existing materials/maps)
+    function markFpsOverlay(obj) {
+      obj.traverse((n) => {
+        if (n.isMesh) {
+          n.renderOrder = 999;
+          if (n.material) {
+            n.material.depthTest = false;
+            n.material.depthWrite = false;
+            if ("toneMapped" in n.material) n.material.toneMapped = false;
+          }
+          n.frustumCulled = false;
+        }
+      });
+    }
+
+    // small ambient fill so the VM isn't too dark
+    const vmLight = new THREE.AmbientLight(0xffffff, 0.8);
+    root.add(vmLight);
+
+    let slot = null; // current FPS model (a deep clone of your world mesh)
+
+    /**
+     * Clone and attach the given source mesh as the FPS view model.
+     * @param {THREE.Object3D} sourceMesh - existing world mesh (with textures).
+     * @param {{forwardAxis?: 'x'|'z', scale?: number}} opts
+     */
+    function setModelFrom(sourceMesh, { forwardAxis = "x", scale = 1.35 } = {}) {
+      if (slot) { anim.remove(slot); slot = null; }
+      // deep clone (preserve materials, textures, children)
+      slot = sourceMesh.clone(true);
+
+      // reset local transform and scale for FPS
+      slot.position.set(0, 0, 0);
+      slot.rotation.set(0, 0, 0);
+      slot.scale.multiplyScalar(scale);
+
+      // Orient so the weapon points forward (camera forward is -Z).
+      // Most of your meshes point +X -> rotate -90° around Y.
+      if (forwardAxis === "x") {
+        slot.rotation.y = -Math.PI / 2;
+      } else if (forwardAxis === "z") {
+        // If your mesh faces +Z, flip around
+        slot.rotation.y = Math.PI;
+      }
+
+      markFpsOverlay(slot);
+      anim.add(slot);
+    }
+
+    function clearModel() {
+      if (slot) { anim.remove(slot); slot = null; }
+    }
+
+    // Recoil / slash spring state (applied to 'anim' transform)
+    const recoil = { z: 0, vz: 0, x: 0, vx: 0, rotX: 0, vrotX: 0 };
+    const slash  = { t: 0, active: false, dur: 0.18, dir: 1 };
+
+    function playRecoil() {
+      recoil.vz    -= 2.6;                     // kick back
+      recoil.vrotX -= 8.0 * (Math.PI / 180);   // slight tilt
+      recoil.vx    += (Math.random() - 0.5) * 0.02;
+    }
+
+    function playSlash() {
+      slash.active = true;
+      slash.t = 0;
+      slash.dir *= -1; // alternate direction
+    }
+
+    function tick(dt) {
+      // Spring back to rest
+      const kPos = 28, dPos = 10;
+      const kRot = 40, dRot = 12;
+
+      recoil.vz    += (-kPos * recoil.z    - dPos * recoil.vz)    * dt;
+      recoil.z     += recoil.vz * dt;
+
+      recoil.vx    += (-kPos * recoil.x    - dPos * recoil.vx)    * dt;
+      recoil.x     += recoil.vx * dt;
+
+      recoil.vrotX += (-kRot * recoil.rotX - dRot * recoil.vrotX) * dt;
+      recoil.rotX  += recoil.vrotX * dt;
+
+      anim.position.set(recoil.x, 0, recoil.z);
+      anim.rotation.x = recoil.rotX;
+
+      // Knife slash arc (applies on top of recoil)
+      if (slash.active) {
+        slash.t += dt;
+        const t = Math.min(1, slash.t / slash.dur);
+        const e = t < 0.5 ? (2 * t * t) : (1 - Math.pow(-2 * t + 2, 2) / 2); // ease in-out
+
+        anim.position.x = recoil.x + 0.06 + 0.08 * e * slash.dir;
+        anim.position.y = 0.00 + 0.05 * e;
+        anim.position.z = recoil.z - 0.06 * e;
+        anim.rotation.z = ( -25 * Math.PI/180 ) + (60 * Math.PI/180) * e * slash.dir;
+        anim.rotation.x = recoil.rotX + ( -8 * Math.PI/180 ) * e;
+
+        if (slash.t >= slash.dur) {
+          slash.active = false;
+          // reset extra offsets, keep recoil values
+          anim.position.y = 0;
+          anim.rotation.z = 0;
+        }
+      }
+    }
+
+    return { setModelFrom, clearModel, playRecoil, playSlash, tick };
+  })();
+
+  // ====== EXISTING WORLD-WEAPON SYSTEM ======
+  const weapons = []; // scattered items in the maze
   const equipped = { weapon: null, ammo: 0 };
   const projectiles = [];
   const ray = new THREE.Raycaster();
 
   let lastKeyTime = 0;
-  const KEY_COOLDOWN = 200; // ms, simple debounce to avoid jitter from key repeats
+  const KEY_COOLDOWN = 200;
   let ignoreHintUntil = 0;
 
   function scatter() {
     for (const w of weapons) scene.remove(w.mesh);
     weapons.length = 0;
 
-    const H = maze.length,
-      W = maze[0].length;
+    const H = maze.length, W = maze[0].length;
     const cells = [];
     for (let y = 1; y < H - 1; y++)
       for (let x = 1; x < W - 1; x++)
@@ -179,7 +298,6 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
     }
   }
 
-  // Find nearest world weapon within pickup radius and roughly in front of camera
   function getWeaponUnderCrosshair(cameraRef) {
     if (performance.now() < ignoreHintUntil) return null;
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(
@@ -198,14 +316,12 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
       if (dist > WEAPON.PICKUP_RADIUS) continue;
       const dirTo = new THREE.Vector3(dx, 0, dz).normalize();
       const dot = forward.dot(dirTo);
-      // require weapon to be roughly in front (small cone). Threshold 0.92 ~ ~23deg
       if (dot < 0.92) continue;
       if (!best || dist < best.dist) best = { weapon: w, index: i, dist };
     }
     return best;
   }
 
-  // drop currently equipped weapon into the world at the player's location
   function dropEquipped() {
     if (!equipped.weapon) return;
     const here = worldToGrid(camera.position.x, camera.position.z);
@@ -220,27 +336,31 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
     weapons.push(dropped);
     equipped.weapon = null;
     equipped.ammo = 0;
+    vm.clearModel(); // hide FPS model
     if (hud?.updateWeapon) hud.updateWeapon(equipped);
   }
 
-  // E key behavior: pick up when aiming at a weapon and in range, otherwise drop equipped
   function onKey(e) {
     if (e.key.toLowerCase() !== "e") return;
-    if (e.repeat) return; // ignore OS key repeat; require discrete presses
+    if (e.repeat) return;
     const now = performance.now();
     if (now - lastKeyTime < KEY_COOLDOWN) return;
     lastKeyTime = now;
+
     const found = getWeaponUnderCrosshair(camera);
     if (found && found.dist <= WEAPON.PICKUP_RADIUS) {
-      // There is a weapon under crosshair and we are close enough
       if (!equipped.weapon) {
-        // equip the found weapon
         const w = found.weapon;
-        // mark taken to avoid race
+
+        // 1) Show FPS view using your actual mesh & textures
+        //    Most of your meshes are modeled facing +X in world -> forwardAxis: 'x'
+        vm.setModelFrom(w.mesh, { forwardAxis: "x", scale: 1.35 });
+
+        // 2) Remove the world pickup
         w.taken = true;
-        // remove world weapon
         scene.remove(w.mesh);
         weapons.splice(found.index, 1);
+
         equipped.weapon = w.type;
         // restore ammo from the world weapon (preserves partial ammo)
         equipped.ammo =
@@ -257,23 +377,37 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
           console.error("Failed to play pick sound:", e);
         }
       } else {
-        // already have a weapon: drop current at player's position (do NOT auto-equip the targeted one)
         dropEquipped();
         ignoreHintUntil = performance.now() + 300;
       }
     } else {
-      // not aiming at a weapon: drop equipped if any
       if (equipped.weapon) dropEquipped();
     }
   }
   addEventListener("keydown", onKey);
 
-  function fire(enemiesCtlRef) {
+  function fire(enemiesCtl) {
     // returns true if we handled a fire (projectile or melee) and prevented raycast fallback
     if (!equipped.weapon) return false;
     const wt = equipped.weapon;
+
     if (wt.kind === "projectile") {
-      if (equipped.ammo <= 0) return false; // no ammo => fall back to unarmed attack
+      if (equipped.ammo <= 0) {
+        try {
+          audio.play(`${wt.id}_dry`, { volume: 0.9 });
+        } catch (e) {
+          console.error("Failed to play dry fire sound:", e);
+        }
+        return false; // no ammo => fall back to unarmed attack
+      }
+
+      // muzzle shot
+      try {
+        audio.play(`pistol_attack`, { volume: 0.9 });
+      } catch (e) {
+        console.error("Failed to play sound:", e);
+      }
+
       // spawn projectile
       const pos = camera.position.clone();
       const dir = new THREE.Vector3(0, 0, -1)
@@ -282,8 +416,8 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
       const spawn = pos.clone().add(dir.clone().multiplyScalar(0.6));
       const geo = new THREE.SphereGeometry(wt.projectileRadius, 8, 8);
       const mat = new THREE.MeshStandardMaterial({
-        color: wt.color,
-        emissive: wt.emissive,
+        color: 0xffa500,
+        emissive: 0xffa500,
       });
       const m = new THREE.Mesh(geo, mat);
       m.castShadow = true;
@@ -299,9 +433,18 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
       if (equipped.ammo !== Infinity)
         equipped.ammo = Math.max(0, equipped.ammo - 1);
       if (hud?.updateWeapon) hud.updateWeapon(equipped);
+
+      // play recoil on gun fire
+      vm.playRecoil();
+
       return true;
     } else if (wt.kind === "melee") {
       // melee: apply instant damage to enemies within range
+      try {
+        audio.play(`knife_attack`, { volume: 0.9 });
+      } catch (e) {
+        console.error("Failed to play knife attack sound:", e);
+      }
       const range = wt.meleeRange || 1.0;
       const pdx = camera.position.x;
       const pdz = camera.position.z;
@@ -310,17 +453,35 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
         if (e.dead) continue;
         const d = Math.hypot(pdx - e.mesh.position.x, pdz - e.mesh.position.z);
         if (d <= range) {
+          try {
+            audio.play(`enemy_damage`, { volume: 0.9 });
+          } catch (e) {
+            console.error("Failed to play enemy damage sound:", e);
+          }
           e.hp -= wt.damage;
-          e.hitFlash = 0.2;
-          if (e.hp <= 0 && !e.dead) e.dead = true;
+          e.hitFlash = 0.5;
+          e.mesh.scale.setScalar(1.2);
+          setTimeout(() => e.mesh.scale.setScalar(1), 100);
+          if (e.hp <= 0 && !e.dead) {
+            try {
+              audio.play(`enemy_death`, { volume: 0.9 });
+            } catch (e) {
+              console.error("Failed to play enemy death sound:", e);
+            }
+            e.dead = true;
+          }
         }
       }
+
+      // play knife slash/stab
+      vm.playSlash();
+
       return true;
     }
     return false;
   }
 
-  function update(dt, player, cameraRef, enemiesCtlRef) {
+  function update(dt, player, cameraRef, enemiesCtl) {
     // animate world weapons
     for (const w of weapons) {
       if (!w.taken) {
@@ -331,7 +492,7 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
       }
     }
 
-    // action hint update: show pickup/drop hint if aiming at a weapon
+    // action hint update
     const hint = document.getElementById("actionHint");
     const found = getWeaponUnderCrosshair(cameraRef);
     if (hint) {
@@ -345,14 +506,13 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
       }
     }
 
-    // update projectiles
+    // projectiles update (unchanged)
     for (let i = projectiles.length - 1; i >= 0; i--) {
       const p = projectiles[i];
       const prev = p.mesh.position.clone();
       const travel = p.vel.clone().multiplyScalar(dt);
       const next = prev.clone().add(travel);
 
-      // raycast from prev towards next for enemies & walls
       ray.set(prev, p.vel.clone().normalize());
       ray.far = travel.length();
 
@@ -360,8 +520,7 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
       const aliveMeshes = enemiesCtl.enemies
         .filter((e) => !e.dead)
         .map((e) => e.mesh);
-      const hitE = ray.intersectObjects(aliveMeshes, true);
-
+      const hitE = ray.intersectObjects(aliveMeshes, false);
       if (hitE.length) {
         const hit = hitE[0];
 
@@ -384,9 +543,7 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
         continue;
       }
 
-      // walls
-      // walls: walls here is an array of AABB objects (not Three.js meshes),
-      // so do a manual AABB vs point check for the projectile's next position.
+      // walls (AABB vs sphere)
       let hitWall = false;
       for (const wa of walls) {
         const cx = Math.max(wa.min.x, Math.min(next.x, wa.max.x));
@@ -416,6 +573,9 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
       }
     }
 
+    // tick FPS viewmodel
+    if (equipped.weapon) vm.tick(dt);
+
     // HUD update
     if (hud?.updateWeapon) hud.updateWeapon(equipped);
   }
@@ -428,6 +588,7 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
     equipped.weapon = null;
     equipped.ammo = 0;
     scatter();
+    vm.clearModel();
     if (hud?.updateWeapon) hud.updateWeapon(equipped);
   }
 
@@ -436,3 +597,5 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
 
   return { weapons, projectiles, update, reset, fire, dropEquipped };
 }
+
+

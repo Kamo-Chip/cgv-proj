@@ -20,6 +20,7 @@ export function createScene() {
     200
   );
   camera.position.set(1, WORLD.PLAYER_BASE_H, 1);
+//   scene.add(camera);
 
   // Lighting
   const hemi = new THREE.HemisphereLight(0xbfd8ff, 0x18222e, 0.9);
@@ -52,4 +53,37 @@ export function createScene() {
   });
 
   return { scene, renderer, camera };
+}
+
+// Add after createScene function, before export
+export function createCameraShake(camera) {
+  let shakeIntensity = 0;
+  let shakeDecay = 5; // how fast shake fades
+  const originalPosition = new THREE.Vector3();
+  
+  function trigger(intensity = 0.15, decay = 5) {
+    shakeIntensity = intensity;
+    shakeDecay = decay;
+  }
+  
+  function update(dt) {
+    if (shakeIntensity <= 0.001) {
+      shakeIntensity = 0;
+      return;
+    }
+    
+    // Apply random offset based on intensity
+    const offsetX = (Math.random() - 0.5) * shakeIntensity;
+    const offsetY = (Math.random() - 0.5) * shakeIntensity;
+    const offsetZ = (Math.random() - 0.5) * shakeIntensity;
+    
+    // Store original position, apply shake, will be reset next frame
+    originalPosition.copy(camera.position);
+    camera.position.add(new THREE.Vector3(offsetX, offsetY, offsetZ));
+    
+    // Decay shake over time
+    shakeIntensity = Math.max(0, shakeIntensity - shakeDecay * dt);
+  }
+  
+  return { trigger, update };
 }

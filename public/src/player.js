@@ -1,7 +1,8 @@
 // src/player.js
 import * as THREE from "three";
-import { MOVE, WORLD } from "./constants.js";
+import { MOVE, WORLD, POWERUP } from "./constants.js";
 import { gridToWorld } from "./utils.js";
+import { audio } from "./audio.js";
 
 export class Player {
   constructor(camera, walls, look, hud) {
@@ -26,10 +27,15 @@ export class Player {
     this.ACCEL = MOVE.ACCEL;
 
     // head bobbing state
-    this.bobPhase = 0;       // oscillation phase
-    this.bobOffsetY = 0;    // current vertical bob offset applied to camera
+    this.bobPhase = 0; // oscillation phase
+    this.bobOffsetY = 0; // current vertical bob offset applied to camera
     this.bobAmplitude = 0.08; // max vertical bob in meters
-    this.bobSpeed = 10;     // base bob speed multiplier
+    this.bobSpeed = 10; // base bob speed multiplier
+
+    this.stepTimer = 0; // cooldown until next eligible step
+    this.stepMinInterval = 0.2; // fastest cadence (seconds) at max speed
+    this.stepMaxInterval = 0.5; // slowest cadence (seconds) at walk start
+    this._bobPrevSin = 0; // to detect left/right step zero-crossings
 
     addEventListener("keydown", (e) => {
       const k = e.key.toLowerCase();
@@ -61,6 +67,15 @@ export class Player {
 
   tryJump() {
     if (this.grounded) {
+      try {
+        if (this.JUMP_V === MOVE.BASE_JUMP_V * POWERUP.JUMP_MULT) {
+          audio.play("player_jump_high", { volume: 0.9 });
+        } else {
+          audio.play("player_jump", { volume: 0.9 });
+        }
+      } catch (e) {
+        console.error("Failed to play player_jump sound:", e);
+      }
       this.yVel = this.JUMP_V;
       this.grounded = false;
     }
@@ -139,7 +154,13 @@ export class Player {
 
     // head bobbing: compute a smooth vertical offset when moving on the ground
     const moveSpeed = Math.hypot(this.vel.x, this.vel.y);
-    const speedRatio = Math.min(1, moveSpeed / this.MAX_SPEED);
+    let speedRatio;
+
+    if (this.MAX_SPEED === MOVE.MAX_SPEED * 2.5) {
+      speedRatio = Math.min(1, moveSpeed);
+    } else {
+      speedRatio = Math.min(1, moveSpeed / this.MAX_SPEED);
+    }
     const isMoving = speedRatio > 0.05 && this.grounded;
     if (isMoving) {
       this.bobPhase += dt * this.bobSpeed * (0.8 + speedRatio);
@@ -147,10 +168,52 @@ export class Player {
       // slowly decay phase to avoid abrupt jumps when resuming
       this.bobPhase += dt * this.bobSpeed * 0.0;
     }
-    const targetBob = isMoving ? Math.sin(this.bobPhase) * this.bobAmplitude * (0.5 + speedRatio) : 0;
+    const targetBob = isMoving
+      ? Math.sin(this.bobPhase) * this.bobAmplitude * (0.5 + speedRatio)
+      : 0;
     // smooth interpolation towards target
     const lerpT = Math.min(1, 10 * dt);
     this.bobOffsetY += (targetBob - this.bobOffsetY) * lerpT;
+
+    // --- footstep SFX tied to bobbing zero-crossings ---
+    this.stepTimer = Math.max(0, this.stepTimer - dt);
+
+    // Only step when actually moving and on the ground
+    if (isMoving && this.grounded) {
+      const bobSin = Math.sin(this.bobPhase);
+
+      // Two steps per bob cycle: trigger when passing through zero (left/right)
+      const crossedUp = this._bobPrevSin <= 0 && bobSin > 0; // step A
+      const crossedDown = this._bobPrevSin >= 0 && bobSin < 0; // step B
+      const crossed = crossedUp || crossedDown;
+
+      if (crossed && this.stepTimer <= 0) {
+        // cadence scales with speed: faster speed -> shorter interval
+        const interval =
+          this.stepMaxInterval -
+          (this.stepMaxInterval - this.stepMinInterval) * speedRatio;
+        this.stepTimer = interval;
+
+        // small volume variance with speed (and slight randomness)
+        const baseVol = 0.35 + 0.35 * speedRatio; // 0.35..0.70
+        const vol = Math.min(1, baseVol * (0.9 + Math.random() * 0.2));
+
+        try {
+          // If you have multiple footstep clips, you can randomize keys here.
+          audio.play(Math.random() < 0.5 ? "player_step_1" : "player_step_2", {
+            volume: vol,
+          });
+        } catch (e) {
+          console.warn("Footstep sound failed:", e);
+        }
+      }
+
+      this._bobPrevSin = bobSin;
+    } else {
+      // reset so we don't get a stray step when resuming
+      this._bobPrevSin = 0;
+      this.stepTimer = 0;
+    }
 
     // propose move
     let nx = this.camera.position.x + this.vel.x * dt;
@@ -181,6 +244,10 @@ export class Player {
       this.grounded = true;
     } else this.grounded = false;
 
-    this.camera.position.set(nx, WORLD.PLAYER_BASE_H + this.yOffset + this.bobOffsetY, nz);
+    this.camera.position.set(
+      nx,
+      WORLD.PLAYER_BASE_H + this.yOffset + this.bobOffsetY,
+      nz
+    );
   }
 }
