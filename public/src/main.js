@@ -1,9 +1,10 @@
 
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import { audio } from "./audio.js";
 import { MAZE } from "./constants.js";
 import { createLookControls } from "./controls.js";
-import { initEnemies } from "./enemies.js";
 import {
   buildKeys,
   buildWalls,
@@ -18,7 +19,7 @@ import { createScene } from "./scene.js";
 import { createHUD } from "./ui.js";
 import { gridToWorld } from "./utils.js";
 import { initWeapons } from "./weapons.js";
-import { initEnemyModel } from "./enemies.js";
+import { initEnemies } from "./enemies.js";
 
 const { scene, renderer, camera } = createScene();
 const hud = createHUD();
@@ -72,6 +73,7 @@ thirdPersonCam = createThirdPersonCamera(camera, playerPositionForCam);
       player_jump_high: "./sounds/player_jump_high.wav",
       player_step_1: "./sounds/player_step_1.wav",
       player_step_2: "./sounds/player_step_2.wav",
+      metal_hit:"./sounds/metal_hit.wav"
     });
   } catch (e) {
     console.warn("Audio load failed (ok for dev):", e);
@@ -143,6 +145,23 @@ player.resetToStart(1, 1, door.position);
 // Initialize our position tracker
 playerPositionForCam.copy(camera.position);
 
+const loader = new GLTFLoader();
+let enemyModel = null; // This will hold the loaded GLB scene
+
+async function loadGameAssets() {
+  try {
+    // IMPORTANT: Replace this with the correct path to your enemy GLB file
+    const gltf = await loader.loadAsync("models/items/enemy.glb"); 
+    enemyModel = gltf.scene; // Store the part we can clone
+    console.log("Enemy model loaded successfully.");
+  } catch (error) {
+    console.error(
+      "Failed to load enemy model. Enemies will be spheres.",
+      error
+    );
+  }
+}
+
 // Enemies
 let lost = false,
   won = false;
@@ -163,24 +182,16 @@ function onPlayerDamage(dmg) {
     hud.showLose();
   }
 }
-const enemiesCtl = initEnemies(scene, camera, walls, maze, onPlayerDamage);
+var enemiesCtl =null;
 
 // Powerups
-const powerupsCtl = initPowerups(scene, maze, enemiesCtl);
+var powerupsCtl = null;
 
 // Weapons
-const weaponsCtl = initWeapons(scene, maze, walls, enemiesCtl, hud, camera);
+var weaponsCtl = null;
 
 // Minimap
-const minimap = createMinimap(
-  maze,
-  door,
-  enemiesCtl.enemies,
-  powerupsCtl.powerups,
-  weaponsCtl.weapons,
-  camera,
-  look
-);
+var minimap = null;
 
 // Keys
 const NUM_KEYS = 1; // Adjustable number of keys
@@ -200,9 +211,9 @@ async function resetGame() {
   // Sync position tracker on reset
   playerPositionForCam.copy(camera.position);
   player.resetKeys();
-  enemiesCtl.reset();
-  powerupsCtl.reset(player);
-  weaponsCtl.reset(player);
+  enemiesCtl?.reset();
+  powerupsCtl?.reset(player);
+  weaponsCtl?.reset(player);
 
   // Remove old keys
   for (const k of keyMeshes) scene.remove(k.mesh);
@@ -258,12 +269,12 @@ addEventListener("keydown", (e) => {
   if (e.key.toLowerCase() === "r") resetGame();
 });
 addEventListener("mousedown", (e) => {
-  if (e.button !== 0) return;
-  if (document.pointerLockElement !== renderer.domElement) return;
-  const handled = weaponsCtl.fire(enemiesCtl);
-  if (!handled) {
-    enemiesCtl.performAttack(wallGroup);
-  }
+  if (e.button !== 0) return;
+  if (document.pointerLockElement !== renderer.domElement) return;
+  const handled = weaponsCtl?.fire(enemiesCtl);
+  if (!handled) {
+    enemiesCtl?.performAttack(wallGroup);
+  }
 });
 
 // Check key collection
@@ -295,8 +306,31 @@ function checkKeyCollection() {
 
 // Start (ensure keys are loaded before animation)
 async function startGame() {
-  await initEnemyModel(); 
-  await resetGame();
+ await loadGameAssets();
+
+  // 2. Init controllers, passing the loaded model to enemies
+  enemiesCtl = initEnemies(
+    scene,
+    camera,
+    walls,
+    maze,
+    onPlayerDamage,
+    enemyModel // <-- Pass the loaded model here
+  );
+  powerupsCtl = initPowerups(scene, maze, enemiesCtl);
+  weaponsCtl = initWeapons(scene, maze, walls, enemiesCtl, hud, camera);
+  minimap = createMinimap(
+    maze,
+    door,
+    enemiesCtl.enemies,
+    powerupsCtl.powerups,
+    weaponsCtl.weapons,
+    camera,
+    look
+  );
+  
+  // 3. Reset game to spawn everything
+  await resetGame();
 
   // Animate
   let last = performance.now();
@@ -342,9 +376,9 @@ async function startGame() {
       }
       // --- END of new collision pass ---
 
-      enemiesCtl.update(dt, true);
-      powerupsCtl.update(dt, player, camera);
-      weaponsCtl.update(dt, player, camera, enemiesCtl);
+      enemiesCtl?.update(dt, true);
+      powerupsCtl?.update(dt, player, camera);
+      weaponsCtl?.update(dt, player, camera, enemiesCtl);
       updateKeys(keyMeshes, dt);
       checkKeyCollection();
     }
@@ -416,7 +450,7 @@ async function startGame() {
     // Glow pulse
     door.material.emissiveIntensity = 0.4 + 0.2 * Math.sin(now * 0.003);
 
-    minimap.draw();
+    minimap?.draw();
     cameraShake.update(dt);
     renderer.render(scene, camera);
     requestAnimationFrame(tick);

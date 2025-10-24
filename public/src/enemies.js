@@ -1,10 +1,18 @@
 // src/enemies.js
 import * as THREE from "three";
+import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import { ENEMY, COMBAT } from "./constants.js";
 import { gridToWorld, worldToGrid } from "./utils.js";
 import { audio } from "./audio.js";
 
-export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
+export function initEnemies(
+  scene,
+  camera,
+  walls,
+  maze,
+  onPlayerDamage,
+  gltfModel
+) {
   // ---- Tunables (safe defaults; override in constants.js if you want) ----
   const MIN_PLAYER_DIST = ENEMY.MIN_PLAYER_DIST ?? 0.9; // personal-space bubble (m)
   const BASE_RADIUS = ENEMY.RADIUS ?? 0.35; // enemy sphere radius (m)
@@ -38,6 +46,45 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     emissiveIntensity: 0.2,
     roughness: 0.6,
   });
+
+  function setModelMaterial(model, callback) {
+    model.traverse((node) => {
+      if (node.isMesh && node.material) {
+        // Handle both single and multi-materials
+        if (Array.isArray(node.material)) {
+          node.material.forEach(callback);
+        } else {
+          callback(node.material);
+        }
+      }
+    });
+  } // Helper to cache original materials (for un-freezing)
+
+  function cacheOriginalMaterials(model) {
+    const cache = new Map();
+    setModelMaterial(model, (mat) => {
+      if (!cache.has(mat.uuid)) {
+        cache.set(mat.uuid, {
+          color: mat.color.clone(),
+          emissive: mat.emissive.clone(),
+        });
+      }
+    });
+    return cache;
+  }
+
+  const _targetQuat = new THREE.Quaternion();
+  const _currentDir = new THREE.Vector3();
+  function rotateTowards(object, targetX, targetZ, dt) {
+    const speed = 8; // Rotation speed (adjust as needed) // Calculate target angle
+    const targetAngle = Math.atan2(
+      -(targetZ - object.position.z),
+      targetX - object.position.x
+    );
+    _targetQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetAngle); // Smoothly interpolate (slerp) towards the target quaternion
+
+    object.quaternion.slerp(_targetQuat, speed * dt);
+  }
 
   const raycaster = new THREE.Raycaster();
   const ndcCenter = new THREE.Vector2(0, 0);
@@ -150,10 +197,49 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
       cell = chooseSpawnCell();
     if (!cell) return false;
 
-    const w = gridToWorld(cell.x, cell.y);
-    const mesh = new THREE.Mesh(enemyGeo, baseMat.clone());
-    mesh.castShadow = true;
-    mesh.position.set(w.x, BASE_RADIUS, w.z);
+    const w = gridToWorld(cell.x, cell.y); // --- MODIFIED: Use GLB model if available, otherwise fallback to sphere ---
+
+    let mesh;
+    let materialCache = null; // For this specific clone
+
+    if (gltfModel) {
+      // Use SkeletonUtils.clone for animated/complex models
+      mesh = SkeletonUtils.clone(gltfModel); // Cache this clone's original materials for un-freezing
+      materialCache = cacheOriginalMaterials(mesh); // Auto-scale the model to match the BASE_RADIUS // We'll scale it so its *largest dimension* matches the sphere's *diameter*
+
+      const box = new THREE.Box3().setFromObject(mesh);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+
+      const targetDiameter = BASE_RADIUS * 2; // Ensure maxDim is not zero to avoid division by zero
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const scale = maxDim > 1e-5 ? targetDiameter / maxDim : 1;
+      mesh.scale.setScalar(scale);
+
+      // Define the offset from the model's origin (0,0,0) down to its visual base/feet.
+      // YOU MUST ADJUST THIS VALUE FOR YOUR MODEL!
+      // Negative value means origin is ABOVE the base.
+      const originToBaseOffset = -0.1; // <-- !!! EXAMPLE VALUE - TUNE THIS !!!
+
+      // Calculate posY to place the *base* near Y=0, accounting for the scale
+      // (originToBaseOffset * scale) = world distance from scaled origin to the base
+      const posY = -(originToBaseOffset * scale);
+
+      mesh.position.set(w.x, posY, w.z);
+
+      // Enable shadows for all sub-meshes
+
+      mesh.traverse((node) => {
+        if (node.isMesh) {
+          node.castShadow = true;
+        }
+      });
+    } else {
+      // Fallback to the sphere if the model didn't load
+      mesh = new THREE.Mesh(enemyGeo, baseMat.clone());
+      mesh.castShadow = true;
+      mesh.position.set(w.x, BASE_RADIUS, w.z);
+    }
     scene.add(mesh);
 
     enemies.push({
@@ -205,9 +291,9 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
       const ddx = nx - cx,
         ddz = nz - cz;
       const d2 = ddx * ddx + ddz * ddz;
-      if (d2 < ENEMY.RADIUS * ENEMY.RADIUS) {
+      if (d2 < BASE_RADIUS * BASE_RADIUS) {
         const d = Math.sqrt(d2) || 1e-5;
-        const overlap = ENEMY.RADIUS - d;
+        const overlap = BASE_RADIUS - d;
         nx += (ddx / d) * overlap;
         nz += (ddz / d) * overlap;
       }
@@ -312,22 +398,23 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     frozen = isFrozen;
 
     for (const e of enemies) {
-      if (isFrozen) {
-        e.mesh.material.color.set(0xcccccc);
-        e.mesh.material.emissive.set(0x555555);
-      } else {
-        e.mesh.material.color.set(0xff5252);
-        e.mesh.material.emissive.set(0x550000);
-      }
-    }
-  }
-
-  function enterRam(e, state, t, dirx, dirz) {
-    e.ramState = state;
-    e.ramT = t;
-    if (dirx !== undefined) {
-      e.ramDir.x = dirx;
-      e.ramDir.z = dirz;
+      setModelMaterial(e.mesh, (mat) => {
+        if (isFrozen) {
+          mat.color.set(0xcccccc);
+          mat.emissive.set(0x555555);
+        } else {
+          // Restore from cache if it exists, otherwise use defaults
+          const original = e.materialCache?.get(mat.uuid);
+          if (original) {
+            mat.color.copy(original.color);
+            mat.emissive.copy(original.emissive);
+          } else {
+            // Fallback for sphere
+            mat.color.set(0xff5252);
+            mat.emissive.set(0x550000);
+          }
+        }
+      });
     }
   }
 
@@ -351,7 +438,11 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
     if (frozen) {
       for (const e of enemies) {
         e.hitFlash = Math.max(0, e.hitFlash - dt);
-        e.mesh.material.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
+        setModelMaterial(e.mesh, (mat) => {
+          if (mat.emissiveIntensity !== undefined) {
+            mat.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
+          }
+        });
       }
       for (let i = enemies.length - 1; i >= 0; i--) {
         if (enemies[i].dead) {
@@ -390,13 +481,20 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
       timeSinceReplan = 0;
     }
 
+    // separation
+    resolveEnemyOverlaps();
+
     // move enemies
     for (const e of enemies) {
       if (e.dead) continue;
 
-      // decay hit flash
+      // decay hit flash// decay hit flash
       e.hitFlash = Math.max(0, e.hitFlash - dt);
-      e.mesh.material.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
+      setModelMaterial(e.mesh, (mat) => {
+        if (mat.emissiveIntensity !== undefined) {
+          mat.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
+        }
+      });
 
       // sync grid from actual pos
       const here = worldToGrid(e.mesh.position.x, e.mesh.position.z);
@@ -425,10 +523,10 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
           const bz = -e.ramDir.z * RAM.BACKOFF_SPEED * 0.5 * dt;
           let nx = e.mesh.position.x + bx;
           let nz = e.mesh.position.z + bz;
-          ({ nx, nz } = slideOutOfWalls(nx, nz));
           e.mesh.position.x = nx;
           e.mesh.position.z = nz;
 
+          rotateTowards(e.mesh, camera.position.x, camera.position.z, dt);
           e.ramT -= dt;
           if (e.ramT <= 0) {
             e.ramHasHit = false;
@@ -438,11 +536,13 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
             // } catch {}
           }
         } else if (e.ramState === "charge") {
+          const chargeTargetX = e.mesh.position.x + e.ramDir.x; // Target point along charge dir
+          const chargeTargetZ = e.mesh.position.z + e.ramDir.z;
+          rotateTowards(e.mesh, chargeTargetX, chargeTargetZ, dt);
           const sx = e.ramDir.x * RAM.CHARGE_SPEED * dt;
           const sz = e.ramDir.z * RAM.CHARGE_SPEED * dt;
           let nx = e.mesh.position.x + sx;
           let nz = e.mesh.position.z + sz;
-          ({ nx, nz } = slideOutOfWalls(nx, nz));
           e.mesh.position.x = nx;
           e.mesh.position.z = nz;
 
@@ -453,9 +553,9 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
             if (Math.hypot(pdx, pdz) <= RAM.HIT_RADIUS) {
               onPlayerDamage(RAM.DAMAGE);
               e.ramHasHit = true;
-              // a tiny squash/pulse
-              e.mesh.scale.setScalar(1.2);
-              setTimeout(() => e.mesh.scale.setScalar(1), 90);
+              // // a tiny squash/pulse
+              // e.mesh.scale.setScalar(1.2);
+              // setTimeout(() => e.mesh.scale.setScalar(1), 90);
               try {
                 audio.play?.("player_damage", { volume: 0.9 });
               } catch (e) {
@@ -473,10 +573,10 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
           const bz = -e.ramDir.z * RAM.BACKOFF_SPEED * dt;
           let nx = e.mesh.position.x + bx;
           let nz = e.mesh.position.z + bz;
-          ({ nx, nz } = slideOutOfWalls(nx, nz));
           e.mesh.position.x = nx;
           e.mesh.position.z = nz;
 
+          rotateTowards(e.mesh, camera.position.x, camera.position.z, dt);
           e.ramT -= dt;
           if (e.ramT <= 0) {
             enterRam(e, "cooldown", RAM.COOLDOWN_TIME);
@@ -486,10 +586,10 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
           const drift = Math.min(tpDist, 0.3); // tiny drift if we're too far
           let nx = e.mesh.position.x + ux * drift * 0.25 * dt;
           let nz = e.mesh.position.z + uz * drift * 0.25 * dt;
-          ({ nx, nz } = slideOutOfWalls(nx, nz));
           e.mesh.position.x = nx;
           e.mesh.position.z = nz;
 
+          rotateTowards(e.mesh, camera.position.x, camera.position.z, dt);
           e.ramT -= dt;
           if (e.ramT <= 0) {
             if (tpDist <= RAM.TRIGGER_DIST * 1.1) {
@@ -518,6 +618,14 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
           e.wanderChangeInterval = 1 + Math.random() * 2;
           e.wanderTimer = 0;
         }
+
+        if (Math.abs(e.vx) > 0.01 || Math.abs(e.vz) > 0.01) {
+          // Only rotate if moving
+          const wanderTargetX = e.mesh.position.x + e.vx;
+          const wanderTargetZ = e.mesh.position.z + e.vz;
+          rotateTowards(e.mesh, wanderTargetX, wanderTargetZ, dt);
+        }
+
         let nx = e.mesh.position.x + (e.vx || 0) * dt;
         let nz = e.mesh.position.z + (e.vz || 0) * dt;
         ({ nx, nz } = slideOutOfWalls(nx, nz));
@@ -526,20 +634,23 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
         continue;
       }
 
-    const targetCell = e.path[Math.min(e.targetIndex, e.path.length - 1)];
-    const tw = gridToWorld(targetCell.gx, targetCell.gy);
+      if (!e.path || e.path.length === 0 || e.targetIndex >= e.path.length) {
+        continue;
+      }
+      const targetCell = e.path[Math.min(e.targetIndex, e.path.length - 1)];
+      const tw = gridToWorld(targetCell.gx, targetCell.gy); // --- BUG FIX: `prevX` and `prevZ` were not defined. --- // Use the enemy's current mesh position instead.
 
-    let dx = tw.x - prevX;
-    let dz = tw.z - prevZ;
-    const dist = Math.hypot(dx, dz);
+      let dx = tw.x - e.mesh.position.x;
+      let dz = tw.z - e.mesh.position.z; // --- END BUG FIX ---
+      const dist = Math.hypot(dx, dz);
 
-    if (dist < 0.02) {
-      e.mesh.position.set(tw.x, e.mesh.position.y, tw.z);
-      e.gx = targetCell.gx;
-      e.gy = targetCell.gy;
-      e.targetIndex++;
-      return;
-    }
+      if (dist < 0.02) {
+        e.mesh.position.set(tw.x, e.mesh.position.y, tw.z);
+        e.gx = targetCell.gx;
+        e.gy = targetCell.gy;
+        e.targetIndex++; // --- BUG FIX: `return` would exit the entire update() function --- // Use `continue` to proceed to the next enemy
+        continue; // --- END BUG FIX ---
+      }
 
       dx /= dist || 1;
       dz /= dist || 1;
@@ -548,12 +659,21 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
       ({ nx, nz } = slideOutOfWalls(nx, nz));
       e.mesh.position.x = nx;
       e.mesh.position.z = nz;
+      rotateTowards(e.mesh, tw.x, tw.z, dt);
       keepDistanceFromPlayer(e.mesh.position); // enforce personal space
     }
 
-    // separation
-    resolveEnemyOverlaps();
+    for (const e of enemies) {
+      if (e.dead) continue;
+      keepDistanceFromPlayer(e.mesh.position); // Apply player separation
+    }
 
+    for (const e of enemies) {
+      if (e.dead) continue;
+      const { nx, nz } = slideOutOfWalls(e.mesh.position.x, e.mesh.position.z);
+      e.mesh.position.x = nx;
+      e.mesh.position.z = nz;
+    }
     // DAMAGE: must be close horizontally AND not airborne (by calibrated offset)
     if (canDealDamage && canHitByHeight) {
       for (const e of enemies) {
@@ -609,8 +729,8 @@ export function initEnemies(scene, camera, walls, maze, onPlayerDamage) {
 
     enemy.hp -= COMBAT.HIT_DAMAGE;
     enemy.hitFlash = 0.5;
-    enemy.mesh.scale.setScalar(1.2);
-    setTimeout(() => enemy.mesh.scale.setScalar(1), 100);
+    // enemy.mesh.scale.setScalar(1.2);
+    // setTimeout(() => enemy.mesh.scale.setScalar(1), 100);
     try {
       audio.play("enemy_damage", { volume: 0.9 });
     } catch (e) {

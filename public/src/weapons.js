@@ -460,8 +460,8 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
           }
           e.hp -= wt.damage;
           e.hitFlash = 0.5;
-          e.mesh.scale.setScalar(1.2);
-          setTimeout(() => e.mesh.scale.setScalar(1), 100);
+          // e.mesh.scale.setScalar(1.2);
+          // setTimeout(() => e.mesh.scale.setScalar(1), 100);
           if (e.hp <= 0 && !e.dead) {
             try {
               audio.play(`enemy_death`, { volume: 0.9 });
@@ -520,7 +520,7 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
       const aliveMeshes = enemiesCtl.enemies
         .filter((e) => !e.dead)
         .map((e) => e.mesh);
-      const hitE = ray.intersectObjects(aliveMeshes, false);
+      const hitE = ray.intersectObjects(aliveMeshes, true);
       if (hitE.length) {
         const hit = hitE[0];
 
@@ -532,6 +532,12 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
         });
 
         if (enemy) {
+          try {
+            // Play the metal hit sound
+            audio.play("metal_hit", { volume: 1.2}); // Adjust volume as needed
+          } catch (e) {
+            console.error("Failed to play metal_hit sound:", e);
+          }
           enemy.hp -= p.dmg;
           enemy.hitFlash = 1.0; // Strong flash for projectile hit
           if (enemy.hp <= 0 && !enemy.dead) enemy.dead = true;
