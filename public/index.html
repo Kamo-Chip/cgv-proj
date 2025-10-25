@@ -4,6 +4,15 @@
     <meta charset="utf-8" />
     <title>First-Person Maze — Three.js (Vanilla)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23ff4d4d'/%3E%3C/svg%3E"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&display=swap"
+    />
 
     <!-- Three.js via import map -->
     <script type="importmap">
@@ -88,31 +97,76 @@
         z-index: 3;
       }
       .crosshair {
-        width: 12px;
-        height: 12px;
+        width: 3px;
+        height: 3px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.95);
+        border: 1px solid rgba(0, 0, 0, 0.4);
+      }
+      .compass-hint {
+        --compass-intensity: 1;
+        position: fixed;
+        left: 50%;
+        top: 70px;
+        transform: translate(-50%, -50%);
+        display: none;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 18px;
+        border-radius: 999px;
+        background: rgba(8, 18, 24, 0.75);
+        border: 1px solid rgba(72, 255, 214, 0.35);
+        box-shadow: 0 0 28px rgba(72, 255, 214, calc(0.4 * var(--compass-intensity)));
+        color: #cffff4;
+        font-family: system-ui, sans-serif;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        z-index: 1202;
+        pointer-events: none;
+      }
+      .compass-hint.show {
+        display: flex;
+      }
+      .compass-needle {
         position: relative;
-        opacity: 0.7;
-        filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.2));
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        border: 1px solid rgba(72, 255, 214, 0.5);
+        background: radial-gradient(circle, rgba(72, 255, 214, 0.2) 0%, rgba(3, 11, 18, 0.85) 70%);
+        box-shadow: inset 0 0 12px rgba(72, 255, 214, 0.25);
+      }
+      .compass-arrow {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 0;
+        height: 0;
+        border-left: 10px solid transparent;
+        border-right: 10px solid transparent;
+        border-top: 26px solid rgba(72, 255, 214, 0.92);
+        filter: drop-shadow(0 0 8px rgba(72, 255, 214, 0.7));
+        transform-origin: 50% 85%;
+        transform: translate(-50%, -50%) rotate(0deg);
+        transition: transform 0.12s ease-out;
+      }
+      .compass-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 76px;
+      }
+      .compass-meta span {
+        display: block;
+        text-align: left;
+        color: rgba(207, 255, 244, 0.95);
+        font-weight: 600;
+        font-feature-settings: "tnum" 1;
       }
       .crosshair::before,
       .crosshair::after {
-        content: "";
-        position: absolute;
-        background: #e6f0ff;
-      }
-      .crosshair::before {
-        left: 50%;
-        top: 0;
-        width: 2px;
-        height: 100%;
-        transform: translateX(-50%);
-      }
-      .crosshair::after {
-        top: 50%;
-        left: 0;
-        width: 100%;
-        height: 2px;
-        transform: translateY(-50%);
+        content: none;
       }
 
       .overlay {
@@ -188,9 +242,277 @@
       .action-hint.show {
         display: flex;
       }
+
+      #enemyHealthLayer {
+        pointer-events: none;
+      }
+      .enemy-health-wrapper {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        width: 120px;
+      }
+      .enemy-health-bar {
+        position: relative;
+        width: 100%;
+        height: 10px;
+        border: 2px solid rgba(0, 0, 0, 0.85);
+        background: rgba(12, 16, 22, 0.7);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+      }
+      .enemy-health-bar > div {
+        position: absolute;
+        top: 0;
+        height: 100%;
+        transition: width 140ms ease-out;
+      }
+      .enemy-health-fill {
+        left: 0;
+        width: 100%;
+        background: linear-gradient(90deg, rgba(96, 255, 123, 0.95), rgba(34, 187, 78, 0.95));
+        box-shadow: 0 0 10px rgba(57, 205, 92, 0.65);
+      }
+      .enemy-health-lost {
+        left: 0;
+        width: 0;
+        background: rgba(255, 64, 64, 0.85);
+        box-shadow: 0 0 12px rgba(255, 64, 64, 0.75);
+        opacity: 0;
+      }
+      .enemy-health-heal {
+        left: 0;
+        width: 0;
+        background: rgba(255, 255, 255, 0.6);
+        box-shadow: 0 0 12px rgba(0, 160, 255, 0.65);
+        opacity: 0;
+      }
+
+      /* Neural interface menu overlay */
+      .menu-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 2000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        perspective: 700px;
+        background:
+          radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.1) 0%, transparent 50%),
+          radial-gradient(circle at 80% 20%, rgba(255, 255, 255, 0.05) 0%, transparent 50%),
+          linear-gradient(45deg, #000000 0%, #0a0a0a 100%);
+        overflow: hidden;
+        transition: opacity 0.6s ease, visibility 0.6s ease;
+      }
+      .menu-overlay.menu-hidden {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+      .neural-card {
+        position: relative;
+        width: min(90%, 900px);
+        height: min(82vh, 640px);
+        background: rgba(0, 0, 0, 0.82);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        box-shadow:
+          0 0 55px rgba(255, 255, 255, 0.14),
+          inset 0 0 100px rgba(255, 255, 255, 0.07);
+        backdrop-filter: blur(6px);
+        overflow: hidden;
+        border-radius: 0;
+        font-family: "Orbitron", monospace;
+      }
+      .neural-card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.8), transparent);
+        animation: menu-scanline 2s linear infinite;
+      }
+      .neural-card__grid {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        grid-template-columns: repeat(25, 1fr);
+        grid-template-rows: repeat(25, 1fr);
+        z-index: 0;
+      }
+      .neural-card__grid-tile {
+        position: relative;
+        border: 1px solid rgba(255, 255, 255, 0.02);
+      }
+      .neural-card__grid-tile::before {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 2px;
+        height: 2px;
+        transform: translate(-50%, -50%);
+        background: rgba(255, 255, 255, 0.32);
+        transition: all 0.3s ease;
+      }
+      .neural-card__grid-tile.is-active::before {
+        width: 6px;
+        height: 6px;
+        background: rgba(255, 255, 255, 0.85);
+        box-shadow: 0 0 12px rgba(255, 255, 255, 0.45);
+        transition: all 0.12s ease;
+      }
+      .neural-menu {
+        position: relative;
+        z-index: 10;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        transform: rotateX(8deg);
+        animation: menu-rotate 8s linear infinite;
+        text-align: center;
+        padding: 3rem 2rem 4rem;
+        color: #ffffff;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+      .neural-title {
+        font-size: clamp(2.5rem, 5vw, 3.8rem);
+        margin: 0 0 3.5rem;
+        font-weight: 700;
+        position: relative;
+        text-shadow:
+          0 0 14px rgba(255, 255, 255, 0.6),
+          0 0 28px rgba(255, 255, 255, 0.32);
+      }
+      .neural-title::after {
+        content: "";
+        position: absolute;
+        bottom: -1.2rem;
+        left: 50%;
+        transform: translateX(-50%);
+        width: min(220px, 60%);
+        height: 2px;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.9), transparent);
+      }
+      .neural-menu__buttons {
+        display: flex;
+        flex-direction: column;
+        gap: 1.2rem;
+        width: min(320px, 80%);
+      }
+      .neural-menu button {
+        margin-top: 0;
+      }
+      .neural-menu .menu-button {
+        position: relative;
+        padding: 1.15rem 2.2rem;
+        cursor: pointer;
+        overflow: hidden;
+        font-family: "Orbitron", monospace;
+        border-radius: 0;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        background: rgba(0, 0, 0, 0.55);
+        color: #ffffff;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        transition: all 0.35s ease;
+      }
+      .neural-menu .menu-button::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
+        transform: translateX(-100%);
+        transition: transform 0.55s ease;
+      }
+      .neural-menu .menu-button:hover {
+        border-color: rgba(255, 255, 255, 0.85);
+        background: rgba(255, 255, 255, 0.14);
+        box-shadow:
+          0 0 24px rgba(255, 255, 255, 0.24),
+          inset 0 0 20px rgba(255, 255, 255, 0.12);
+        transform: translateZ(18px);
+      }
+      .neural-menu .menu-button:hover::before {
+        transform: translateX(100%);
+      }
+      .neural-menu .menu-button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+      }
+      .terminal-text {
+        margin-top: 3rem;
+        font-family: "Courier New", monospace;
+        font-size: 0.85rem;
+        opacity: 0.65;
+        letter-spacing: 0.16em;
+      }
+      .pulse {
+        animation: menu-pulse 2s infinite;
+      }
+
+      @keyframes menu-rotate {
+        0%,
+        100% {
+          transform: rotateY(0deg) rotateX(8deg);
+        }
+        25% {
+          transform: rotateY(5deg) rotateX(8deg);
+        }
+        75% {
+          transform: rotateY(-5deg) rotateX(8deg);
+        }
+      }
+      @keyframes menu-scanline {
+        0% {
+          transform: translateY(-100%);
+        }
+        100% {
+          transform: translateY(100vh);
+        }
+      }
+      @keyframes menu-pulse {
+        0%,
+        100% {
+          opacity: 0.6;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
     </style>
   </head>
   <body>
+    <div id="menuOverlay" class="menu-overlay">
+      <div class="neural-card">
+        <div class="neural-card__grid" id="menuGrid"></div>
+        <div class="neural-menu">
+          <h1 class="neural-title">Neural Interface</h1>
+          <div class="neural-menu__buttons">
+            <button id="initiateBtn" class="menu-button" type="button">
+              <span>Initiate System</span>
+            </button>
+            <button id="terminateBtn" class="menu-button" type="button">
+              <span>Terminate Session</span>
+            </button>
+            <button id="resumeBtn" class="menu-button" type="button" style="display: none">
+              <span>Return to Game</span>
+            </button>
+            <button id="menuSettingsBtn" class="menu-button" type="button">
+              <span>System Settings</span>
+            </button>
+          </div>
+          <div class="terminal-text pulse">
+            &gt; SYSTEM READY | CONNECTION ESTABLISHED | V.2.4.7 | PRESS SPACE TO SKIP INTRO
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div id="app"></div>
 
     <div class="hud">
@@ -266,17 +588,6 @@
       <canvas id="minimap"></canvas>
     </div>
 
-    <div id="start" class="overlay">
-      <div class="panel">
-        <h2 style="margin: 0.2rem 0 0.4rem">First-Person Maze</h2>
-        <div>Reach the glowing goal cube without touching the walls.</div>
-        <button id="playBtn">Click to Play</button>
-        <button id="settingsBtn" aria-haspopup="dialog">
-          Settings
-        </button>
-      </div>
-    </div>
-
     <div id="win" class="overlay hidden">
       <div class="panel">
         <h2 style="margin: 0.2rem 0 0.6rem">You made it! 🎉</h2>
@@ -296,6 +607,16 @@
     <!-- Action hint shown when crosshair is over a weapon -->
     <div id="actionHint" class="action-hint" aria-hidden="true">
       Pick Up Weapon (E)
+    </div>
+
+    <div id="compassHint" class="compass-hint" aria-hidden="true">
+      <div class="compass-needle">
+        <div class="compass-arrow"></div>
+      </div>
+      <div class="compass-meta">
+        <span id="compassDistance">0.0m</span>
+        <span id="compassTimer">0.0s</span>
+      </div>
     </div>
   </body>
 

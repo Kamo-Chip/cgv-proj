@@ -54,10 +54,12 @@ class WorldWeapon {
     // can interact with it right away. The GLTF model will be loaded
     // asynchronously and inserted into this group when available.
     const w = gridToWorld(gx, gy);
-    const group = new THREE.Group();
+  const group = new THREE.Group();
     group.position.set(w.x, 0.45, w.z);
     // keep the same base orientation as before (lay flat)
     group.rotation.x = 0;
+  group.userData.typeId = type.id;
+  group.userData.createAvatarAttachment = null;
 
     // Attempt to load a GLTF for this weapon. Expect files at ./models/weapons/<id>.glb
     const loader = new GLTFLoader();
@@ -101,6 +103,14 @@ class WorldWeapon {
 
         // Add the model to the placeholder group
         group.add(model);
+
+        group.userData.createAvatarAttachment = () => {
+          const clone = model.clone(true);
+          clone.position.set(0, 0, 0);
+          clone.rotation.set(0, 0, 0);
+          clone.scale.setScalar(1);
+          return clone;
+        };
       },
       undefined,
       (err) => {
@@ -120,6 +130,14 @@ class WorldWeapon {
         m.rotation.x = type.id === "pistol" ? 0 : Math.PI / 2;
         m.position.set(0, 0, 0);
         group.add(m);
+
+        group.userData.createAvatarAttachment = () => {
+          const clone = m.clone(true);
+          clone.position.set(0, 0, 0);
+          clone.rotation.set(0, 0, 0);
+          clone.scale.setScalar(1);
+          return clone;
+        };
       }
     );
 
@@ -127,7 +145,7 @@ class WorldWeapon {
   }
 }
 
-export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
+export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerModel) {
   // ====== VIEWMODEL (attached to camera; reuses your existing meshes) ======
   const vm = (() => {
     const root = new THREE.Group();
@@ -324,6 +342,7 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
 
   function dropEquipped() {
     if (!equipped.weapon) return;
+    const prevType = equipped.weapon;
     const here = worldToGrid(camera.position.x, camera.position.z);
     // preserve remaining ammo on drop
     const dropped = new WorldWeapon(
@@ -337,6 +356,7 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
     equipped.weapon = null;
     equipped.ammo = 0;
     vm.clearModel(); // hide FPS model
+    avatar?.clearWeapon?.(prevType?.id || prevType);
     if (hud?.updateWeapon) hud.updateWeapon(equipped);
   }
 
@@ -376,6 +396,23 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
         } catch (e) {
           console.error("Failed to play pick sound:", e);
         }
+
+        // If the avatar is present and we're in third-person, play a reload animation
+        try {
+          // playerModel may not be in scope here; use avatar (userData) reference
+          if (avatar && avatar.playClip) avatar.playClip("Pistol_Reload");
+        } catch (e) {
+          // ignore missing clip
+        }
+
+        const attachmentFactory = w.mesh.userData?.createAvatarAttachment;
+        const attachment =
+          (typeof attachmentFactory === "function" && attachmentFactory()) ||
+          w.mesh.clone(true);
+        attachment.position.set(0, 0, 0);
+        attachment.rotation.set(0, 0, 0);
+        attachment.scale.set(1, 1, 1);
+        avatar?.equipWeapon?.(w.type.id, attachment);
       } else {
         dropEquipped();
         ignoreHintUntil = performance.now() + 300;
@@ -385,6 +422,8 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
     }
   }
   addEventListener("keydown", onKey);
+
+  const avatar = playerModel?.userData;
 
   function fire(enemiesCtl) {
     // returns true if we handled a fire (projectile or melee) and prevented raycast fallback
@@ -436,6 +475,7 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
 
       // play recoil on gun fire
       vm.playRecoil();
+      avatar?.triggerAction?.("shoot");
 
       return true;
     } else if (wt.kind === "melee") {
@@ -449,32 +489,36 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
       const pdx = camera.position.x;
       const pdz = camera.position.z;
       const enemies = enemiesCtl.enemies;
+      let hitAny = false;
       for (const e of enemies) {
         if (e.dead) continue;
         const d = Math.hypot(pdx - e.mesh.position.x, pdz - e.mesh.position.z);
         if (d <= range) {
-          try {
-            audio.play(`enemy_damage`, { volume: 0.9 });
-          } catch (e) {
-            console.error("Failed to play enemy damage sound:", e);
-          }
-          e.hp -= wt.damage;
-          e.hitFlash = 0.5;
-          // e.mesh.scale.setScalar(1.2);
-          // setTimeout(() => e.mesh.scale.setScalar(1), 100);
-          if (e.hp <= 0 && !e.dead) {
-            try {
-              audio.play(`enemy_death`, { volume: 0.9 });
-            } catch (e) {
-              console.error("Failed to play enemy death sound:", e);
+          hitAny = true;
+          if (typeof enemiesCtl.applyDamage === "function") {
+            enemiesCtl.applyDamage(e, wt.damage);
+          } else {
+            e.hp -= wt.damage;
+            e.hitFlash = 0.5;
+            // e.mesh.scale.setScalar(1.2);
+            // setTimeout(() => e.mesh.scale.setScalar(1), 100);
+            if (e.hp <= 0 && !e.dead) {
+              e.dead = true;
             }
-            e.dead = true;
           }
+        }
+      }
+      if (hitAny) {
+        try {
+          audio.play(`enemy_damage`, { volume: 0.9 });
+        } catch (err) {
+          console.error("Failed to play enemy damage sound:", err);
         }
       }
 
       // play knife slash/stab
       vm.playSlash();
+      avatar?.triggerAction?.("sword");
 
       return true;
     }
@@ -534,7 +578,7 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
         if (enemy) {
           try {
             // Play the metal hit sound
-            audio.play("metal_hit", { volume: 1.2}); // Adjust volume as needed
+            audio.play("metal_hit", { volume: 0.7}); // Adjust volume as needed
           } catch (e) {
             console.error("Failed to play metal_hit sound:", e);
           }
@@ -586,6 +630,10 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
     if (hud?.updateWeapon) hud.updateWeapon(equipped);
   }
 
+  function isEquipped() {
+    return !!equipped.weapon;
+  }
+
   function reset(player) {
     for (const w of weapons) scene.remove(w.mesh);
     weapons.length = 0;
@@ -595,13 +643,14 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera) {
     equipped.ammo = 0;
     scatter();
     vm.clearModel();
+    avatar?.clearAllWeapons?.();
     if (hud?.updateWeapon) hud.updateWeapon(equipped);
   }
 
   // initial scatter
   scatter();
 
-  return { weapons, projectiles, update, reset, fire, dropEquipped };
+  return { weapons, projectiles, update, reset, fire, dropEquipped, isEquipped };
 }
 
 

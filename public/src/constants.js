@@ -28,8 +28,8 @@ export const MOVE = {
 };
 
 export const ENEMY = {
-  SPEED: 1.5,
-  RADIUS: 0.3,
+  SPEED: 1.6,
+  RADIUS: 0.28,
   DMG_PER_SEC: 1,
   REPLAN_DT: 0.1,
   TARGET_COUNT: 6,
@@ -40,6 +40,15 @@ export const ENEMY = {
   PUSH_FACTOR: 1.0,
   PATHFIND_RADIUS: MAZE.CELL * 10,
   WANDER_SPEED: 0.8,
+  MIN_PLAYER_DIST: 0.34,
+  ATTACK_RADIUS: 0.45,
+  RAM_TRIGGER_DIST: 0.75,
+  RAM_WINDUP_TIME: 0.32,
+  RAM_CHARGE_TIME: 0.24,
+  RAM_BACKOFF_TIME: 0.18,
+  RAM_COOLDOWN_TIME: 0.4,
+  RAM_CHARGE_SPEED: 3.0,
+  RAM_BACKOFF_SPEED: 1.4,
 };
 
 export const COMBAT = {
@@ -54,6 +63,8 @@ export const POWERUP = {
   JUMP_MULT: 2,
   GRAVITY_MULT: 0.3,
   PICKUP_RADIUS: 0.6,
+  COMPASS_DURATION: 10,
+  COMPASS_WEIGHT: 3,
 };
 
 export const WEAPON = {

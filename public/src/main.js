@@ -1,9 +1,8 @@
-
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import { audio } from "./audio.js";
-import { MAZE } from "./constants.js";
+import { MAZE, POWERUP } from "./constants.js";
 import { createLookControls } from "./controls.js";
 import {
   buildKeys,
@@ -19,10 +18,12 @@ import { createScene } from "./scene.js";
 import { createHUD } from "./ui.js";
 import { gridToWorld } from "./utils.js";
 import { initWeapons } from "./weapons.js";
+import { createPlayerAvatar, AVATAR_HEIGHT } from "./player-avatar.js";
 import { initEnemies } from "./enemies.js";
 
 const { scene, renderer, camera } = createScene();
 const hud = createHUD();
+hud.updateCompassHint?.({ active: false });
 
 // Create look controls (pointer lock + look state) — required by Player and other systems
 const { look, lockPointer } = createLookControls(renderer, camera);
@@ -32,24 +33,26 @@ const cameraShake = createCameraShake(camera);
 
 import { createThirdPersonCamera } from "./controls.js";
 
-// Player model (the cube for third-person view)
-const playerModelGeo = new THREE.BoxGeometry(0.8, 1.8, 0.8);
-const playerModelMat = new THREE.MeshStandardMaterial({
-  color: 0xeeeeee,
-  roughness: 0.8,
+// Player model (stylized skin-compatible avatar for third-person view)
+const playerModel = createPlayerAvatar({
+  skinUrl: "https://minotar.net/skin/D_Luc",
 });
-const playerModel = new THREE.Mesh(playerModelGeo, playerModelMat);
-playerModel.castShadow = true;
 scene.add(playerModel);
+playerModel.visible = false;
 
 let cameraMode = "first"; // 'first' or 'third'
 let thirdPersonCam = null;
+let won = false;
+let lost = false;
 
 // Create a separate Vector3 to hold the player's true position.
 // The Player class will update the camera's position, we'll copy it here,
 // and the third-person camera will use this as its target.
 const playerPositionForCam = new THREE.Vector3();
 thirdPersonCam = createThirdPersonCamera(camera, playerPositionForCam);
+
+let activeIntro = null;
+let introFinished = false;
 
 // Initialize audio (do not resume automatically; wait for user gesture)
 // We'll load sounds but not start the AudioContext until user interaction.
@@ -59,6 +62,7 @@ thirdPersonCam = createThirdPersonCamera(camera, playerPositionForCam);
       pistol_attack: "./sounds/pistol_attack.wav",
       pistol_pick: "./sounds/pistol_pick.wav",
       powerup_pick: "./sounds/powerup_pick.wav",
+      compass_pick: "./sounds/powerup_pick.wav",
       knife_pick: "./sounds/knife_pick.wav",
       knife_attack: "./sounds/knife_attack.wav",
       enemy_damage: "./sounds/enemy_damage.wav",
@@ -73,7 +77,9 @@ thirdPersonCam = createThirdPersonCamera(camera, playerPositionForCam);
       player_jump_high: "./sounds/player_jump_high.wav",
       player_step_1: "./sounds/player_step_1.wav",
       player_step_2: "./sounds/player_step_2.wav",
-      metal_hit:"./sounds/metal_hit.wav"
+      intro_cinematic:
+        "./sounds/Cinematic Whoosh - Sound Effect (Final Cut).mp3",
+      metal_hit: "./sounds/metal_hit.wav",
     });
   } catch (e) {
     console.warn("Audio load failed (ok for dev):", e);
@@ -86,7 +92,16 @@ hud.onSfxVol((v) => audio.setSfxVolume(v));
 hud.onMusicVol((v) => audio.setMusicVolume(v));
 hud.onToggleAudio((enabled) => audio.toggleEnabled(enabled));
 
-if (hud.onCloseSettings) hud.onCloseSettings(() => hud.showSettings(false));
+if (hud.onCloseSettings) {
+  hud.onCloseSettings(() => {
+    if (reopenMenuOnSettingsClose) {
+      reopenMenuOnSettingsClose = false;
+      if (!document.pointerLockElement && !won && !lost) {
+        openMenuOverlay({ focusResume: introFinished });
+      }
+    }
+  });
+}
 
 // Ensure audio context is resumed on first user input (gesture required on many browsers)
 function onFirstGesture() {
@@ -106,6 +121,132 @@ function onFirstGesture() {
 }
 window.addEventListener("pointerdown", onFirstGesture);
 window.addEventListener("keydown", onFirstGesture);
+
+// Neural interface menu setup
+const menuOverlay = document.getElementById("menuOverlay");
+const menuGrid = document.getElementById("menuGrid");
+const initiateBtn = document.getElementById("initiateBtn");
+const resumeBtn = document.getElementById("resumeBtn");
+const menuSettingsBtn = document.getElementById("menuSettingsBtn");
+const terminateBtn = document.getElementById("terminateBtn");
+
+let menuGridIntervalId = null;
+const menuTiles = [];
+
+if (menuGrid) {
+  if (menuGrid.children.length === 0) {
+    const tileCount = 25 * 25;
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < tileCount; i++) {
+      const tile = document.createElement("span");
+      tile.className = "neural-card__grid-tile";
+      frag.appendChild(tile);
+      menuTiles.push(tile);
+    }
+    menuGrid.appendChild(frag);
+  } else {
+    menuTiles.push(...menuGrid.querySelectorAll(".neural-card__grid-tile"));
+  }
+}
+
+function startMenuGridAnim() {
+  if (!menuTiles.length || menuGridIntervalId) return;
+  menuGridIntervalId = window.setInterval(() => {
+    const tile = menuTiles[Math.floor(Math.random() * menuTiles.length)];
+    if (!tile || tile.classList.contains("is-active")) return;
+    tile.classList.add("is-active");
+    window.setTimeout(() => tile.classList.remove("is-active"), 220);
+  }, 160);
+}
+
+function stopMenuGridAnim() {
+  if (menuGridIntervalId) {
+    window.clearInterval(menuGridIntervalId);
+    menuGridIntervalId = null;
+  }
+}
+
+function setResumeButtonVisible(visible) {
+  if (!resumeBtn) return;
+  resumeBtn.style.display = visible ? "block" : "none";
+  resumeBtn.disabled = !visible;
+}
+
+let reopenMenuOnSettingsClose = false;
+
+function openMenuOverlay({
+  allowResume = introFinished,
+  focusResume = false,
+} = {}) {
+  if (!menuOverlay) return;
+  setResumeButtonVisible(allowResume);
+  menuOverlay.classList.remove("menu-hidden");
+  startMenuGridAnim();
+  hud.showStart?.(false);
+  hud.showSettings?.(false);
+  if (allowResume && focusResume) {
+    requestAnimationFrame(() => resumeBtn?.focus());
+  }
+}
+
+function closeMenuOverlay() {
+  if (!menuOverlay) return;
+  if (menuOverlay.classList.contains("menu-hidden")) return;
+  menuOverlay.classList.add("menu-hidden");
+  stopMenuGridAnim();
+  setResumeButtonVisible(false);
+}
+
+if (menuOverlay && !menuOverlay.classList.contains("menu-hidden")) {
+  startMenuGridAnim();
+}
+setResumeButtonVisible(false);
+
+if (initiateBtn) {
+  initiateBtn.addEventListener("click", async () => {
+    if (initiateBtn.disabled) return;
+    initiateBtn.disabled = true;
+    closeMenuOverlay();
+    try {
+      await playIntroSequence();
+    } finally {
+      initiateBtn.disabled = false;
+    }
+  });
+}
+
+if (resumeBtn) {
+  resumeBtn.addEventListener("click", () => {
+    closeMenuOverlay();
+    hud.showStart?.(false);
+    lockPointer();
+  });
+}
+
+if (menuSettingsBtn) {
+  menuSettingsBtn.addEventListener("click", () => {
+    if (menuSettingsBtn.disabled) return;
+    reopenMenuOnSettingsClose = true;
+    closeMenuOverlay();
+    hud.showSettings?.(true);
+  });
+}
+
+if (terminateBtn) {
+  terminateBtn.addEventListener("click", async () => {
+    if (terminateBtn.disabled) return;
+    terminateBtn.disabled = true;
+    introFinished = false;
+    setResumeButtonVisible(false);
+    try {
+      await resetGame();
+      openMenuOverlay({ allowResume: false });
+      initiateBtn && (initiateBtn.disabled = false);
+    } finally {
+      terminateBtn.disabled = false;
+    }
+  });
+}
 
 // Maze + walls
 const maze = generateMaze();
@@ -138,37 +279,72 @@ scene.add(door);
 let doorOpen = false;
 let doorAnimY = door.position.y;
 
+const exitBeacon = new THREE.Mesh(
+  new THREE.CylinderGeometry(1.4, 1.4, 12, 24, 1, true),
+  new THREE.MeshBasicMaterial({
+    color: 0x48ffd6,
+    transparent: true,
+    opacity: 0.32,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  })
+);
+const exitBeaconMaterial = exitBeacon.material;
+exitBeacon.position.set(exitWorld.x, 6.5, exitWorld.z);
+exitBeacon.visible = false;
+scene.add(exitBeacon);
+
+const exitBeaconBase = new THREE.Mesh(
+  new THREE.CircleGeometry(1.6, 36),
+  new THREE.MeshBasicMaterial({
+    color: 0x48ffd6,
+    transparent: true,
+    opacity: 0.35,
+    depthWrite: false,
+  })
+);
+const exitBeaconBaseMaterial = exitBeaconBase.material;
+exitBeaconBase.rotation.x = -Math.PI / 2;
+exitBeaconBase.position.set(exitWorld.x, 0.05, exitWorld.z);
+exitBeaconBase.visible = false;
+scene.add(exitBeaconBase);
+
 // Player
 const player = new Player(camera, walls, look, hud);
 player.setHealth(100);
 player.resetToStart(1, 1, door.position);
 // Initialize our position tracker
 playerPositionForCam.copy(camera.position);
+let wasGrounded = player.grounded;
 
 const loader = new GLTFLoader();
 let enemyModel = null; // This will hold the loaded GLB scene
 
 async function loadGameAssets() {
-  try {
-    // IMPORTANT: Replace this with the correct path to your enemy GLB file
-    const gltf = await loader.loadAsync("models/items/enemy.glb"); 
-    enemyModel = gltf.scene; // Store the part we can clone
-    console.log("Enemy model loaded successfully.");
-  } catch (error) {
-    console.error(
-      "Failed to load enemy model. Enemies will be spheres.",
-      error
-    );
-  }
+  try {
+    // IMPORTANT: Replace this with the correct path to your enemy GLB file
+    const gltf = await loader.loadAsync("models/items/enemy.glb");
+    enemyModel = gltf.scene; // Store the part we can clone
+    console.log("Enemy model loaded successfully.");
+  } catch (error) {
+    console.error(
+      "Failed to load enemy model. Enemies will be spheres.",
+      error
+    );
+  }
 }
 
 // Enemies
-let lost = false,
-  won = false;
 function onPlayerDamage(dmg) {
   if (lost || won) return;
-
   hud.triggerDamageFlash();
+
+  // Play a targeted hit animation on the player avatar (if available)
+  try {
+    playerModel.userData.playClip?.("Hit_Chest");
+  } catch (e) {
+    // ignore if clip not available
+  }
 
   player.setHealth(player.health - dmg);
   cameraShake.trigger(dmg * 0.015, 8);
@@ -178,11 +354,18 @@ function onPlayerDamage(dmg) {
     } catch (e) {
       console.error("Failed to play level_lose sound:", e);
     }
+    playerModel.userData.triggerAction?.("death");
+    // Ensure the 3D avatar is visible and remains visible when the player dies,
+    // regardless of the current camera mode.
+    cameraMode = "third";
+    playerModel.visible = true;
+    // lock camera mode to third-person so the death fall is always visible
+    cameraMode = "third";
     lost = true;
     hud.showLose();
   }
 }
-var enemiesCtl =null;
+var enemiesCtl = null;
 
 // Powerups
 var powerupsCtl = null;
@@ -206,10 +389,12 @@ async function resetGame() {
   lost = false;
   hud.hideWin();
   hud.hideLose();
+  cameraMode = "first";
   player.setHealth(100);
   player.resetToStart(1, 1, door.position);
   // Sync position tracker on reset
   playerPositionForCam.copy(camera.position);
+  wasGrounded = player.grounded;
   player.resetKeys();
   enemiesCtl?.reset();
   powerupsCtl?.reset(player);
@@ -230,23 +415,235 @@ async function resetGame() {
   door.position.y = DOOR_H / 2;
   doorOpen = false;
   doorAnimY = door.position.y;
-  if (document.pointerLockElement !== renderer.domElement) hud.showStart(true);
+  exitBeacon.visible = false;
+  exitBeaconBase.visible = false;
+  hud.updateCompassHint?.({ active: false });
+  playerModel.userData.reset?.();
+  playerModel.visible = false;
+  if (
+    document.pointerLockElement !== renderer.domElement &&
+    menuOverlay?.classList.contains("menu-hidden")
+  ) {
+    hud.showStart(true);
+  }
+}
+
+// Intro camera sequence (shorter, skip-able, restores first-person control)
+async function playIntroSequence() {
+  if (activeIntro) return activeIntro.promise;
+
+  let resolveIntro;
+  const promise = new Promise((resolve) => {
+    resolveIntro = resolve;
+  });
+
+  const introState = {
+    promise,
+    skipRequested: false,
+    finished: false,
+  };
+  activeIntro = introState;
+  introFinished = false;
+
+  cameraMode = "third";
+
+  const playerPos = playerPositionForCam.clone();
+
+  let introAudio = null;
+  try {
+    introAudio = audio.play?.("intro_cinematic", { volume: 0.7 });
+  } catch (e) {
+    console.warn("Intro sound failed to play:", e);
+  }
+
+  const waypoints = [
+    new THREE.Vector3(playerPos.x - 9, 4.6, playerPos.z - 9),
+    new THREE.Vector3(playerPos.x - 6.2, 3.6, playerPos.z - 5.6),
+    new THREE.Vector3(playerPos.x - 3.6, 2.8, playerPos.z - 3.0),
+    new THREE.Vector3(playerPos.x - 1.8, 2.3, playerPos.z - 1.4),
+    new THREE.Vector3(
+      playerPos.x + Math.sin(Math.PI * 0.82) * 2.7,
+      playerPos.y + 1.8,
+      playerPos.z + Math.cos(Math.PI * 0.82) * 2.7
+    ),
+    new THREE.Vector3(
+      playerPos.x + Math.sin(Math.PI * 0.6) * 2.2,
+      playerPos.y + 1.35,
+      playerPos.z + Math.cos(Math.PI * 0.6) * 2.2
+    ),
+    new THREE.Vector3(
+      playerPos.x + Math.sin(Math.PI * 0.35) * 2.0,
+      playerPos.y + 1.1,
+      playerPos.z + Math.cos(Math.PI * 0.35) * 2.0
+    ),
+    new THREE.Vector3(playerPos.x, playerPos.y + 1.0, playerPos.z - 2.0),
+  ];
+
+  const mazePhaseTime = 1.9;
+  const arrivalTime = 2.05;
+  const holdJumpTime = 1.0;
+  const arcPhaseTime = 1.6;
+  const totalDuration = mazePhaseTime + arcPhaseTime;
+  const landingTime = arrivalTime + holdJumpTime;
+
+  const lookAtTarget = new THREE.Vector3(
+    playerPos.x,
+    playerPos.y + 0.6,
+    playerPos.z
+  );
+  const tempVec = new THREE.Vector3();
+
+  const startTime = performance.now();
+  let lastFrameTime = startTime;
+  let jumpHoldTriggered = false;
+  let jumpLandTriggered = false;
+  let playerModelShown = false;
+
+  const skipActivationDelayMs = 220;
+  const allowSkipAfter = startTime + skipActivationDelayMs;
+
+  const handleKey = (e) => {
+    if (introState.finished) return;
+    if (performance.now() < allowSkipAfter) return;
+    const key = e.key?.toLowerCase();
+    if (key === " " || key === "enter" || key === "escape" || key === "skip") {
+      introState.skipRequested = true;
+    }
+  };
+  const handlePointer = () => {
+    if (introState.finished) return;
+    if (performance.now() < allowSkipAfter) return;
+    introState.skipRequested = true;
+  };
+
+  document.addEventListener("keydown", handleKey);
+  document.addEventListener("pointerdown", handlePointer);
+
+  const finalizeIntro = () => {
+    if (introState.finished) return;
+    introState.finished = true;
+    document.removeEventListener("keydown", handleKey);
+    document.removeEventListener("pointerdown", handlePointer);
+    try {
+      introAudio?.stop?.(0);
+    } catch (err) {
+      console.warn("Failed to stop intro audio:", err);
+    }
+    if (!jumpLandTriggered) {
+      playerModel.userData.triggerAction?.("jumpLand");
+      jumpLandTriggered = true;
+    }
+    camera.position.copy(waypoints[waypoints.length - 1]);
+    camera.lookAt(lookAtTarget);
+    cameraMode = "first";
+    playerModel.visible = false;
+    activeIntro = null;
+    introFinished = true;
+    resolveIntro();
+  };
+
+  function animateIntro(now) {
+    if (introState.finished) return;
+
+    const rawElapsed = (now - startTime) / 1000;
+    const elapsed = Math.min(
+      introState.skipRequested ? totalDuration : rawElapsed,
+      totalDuration
+    );
+    const dt = Math.min((now - lastFrameTime) / 1000, 0.05);
+    lastFrameTime = now;
+
+    let currentPos;
+    if (elapsed < mazePhaseTime) {
+      const phase1T = elapsed / mazePhaseTime;
+      const eased = 1 - Math.pow(1 - phase1T, 3);
+      const scaledT = eased * 3;
+      const segment = Math.min(Math.floor(scaledT), 2);
+      const segmentProgress = scaledT - segment;
+      const smoothProgress =
+        segmentProgress * segmentProgress * (3 - 2 * segmentProgress);
+     currentPos = tempVec.lerpVectors(
+        waypoints[segment],
+        waypoints[Math.min(segment + 1, waypoints.length - 1)],
+        smoothProgress
+      );
+    } else {
+      const phase2T = (elapsed - mazePhaseTime) / arcPhaseTime;
+      const eased =
+        phase2T < 0.5
+          ? 4 * phase2T * phase2T * phase2T
+          : 1 - Math.pow(-2 * phase2T + 2, 3) / 2;
+      const scaledT = eased * 4;
+      const segment = Math.min(Math.floor(scaledT), 3) + 3;
+      const segmentProgress = scaledT - (segment - 3);
+      const smoothProgress =
+        segmentProgress * segmentProgress * (3 - 2 * segmentProgress);
+      currentPos = tempVec.lerpVectors(
+        waypoints[segment],
+        waypoints[Math.min(segment + 1, waypoints.length - 1)],
+        smoothProgress
+      );
+    }
+
+    camera.position.copy(currentPos);
+    camera.lookAt(lookAtTarget);
+
+    if (elapsed >= arrivalTime && !jumpHoldTriggered) {
+      playerModel.visible = true;
+      playerModel.position.copy(playerPositionForCam);
+      playerModel.position.y -= AVATAR_HEIGHT / 2;
+      playerModel.userData.triggerAction?.("jumpHold");
+      jumpHoldTriggered = true;
+      playerModelShown = true;
+    }
+
+    if (elapsed >= landingTime && !jumpLandTriggered) {
+      playerModel.userData.triggerAction?.("jumpLand");
+      jumpLandTriggered = true;
+    }
+
+    if (playerModelShown) {
+      playerModel.userData.animate?.({
+        dt,
+        speed: 0,
+        grounded: jumpLandTriggered,
+        maxSpeed: player.MAX_SPEED,
+      });
+    }
+
+    if (elapsed >= totalDuration) {
+      finalizeIntro();
+      return;
+    }
+
+    requestAnimationFrame(animateIntro);
+  }
+
+  requestAnimationFrame(animateIntro);
+
+  return promise;
 }
 
 // Pointer lock & overlays
-hud.playBtn.addEventListener("click", () => {
+hud.playBtn?.addEventListener("click", () => {
   hud.showStart(false);
   hud.showSettings(false);
   lockPointer();
 });
 
-hud.settingsBtn.addEventListener("click", () => {
+hud.settingsBtn?.addEventListener("click", () => {
   hud.showSettings(true);
 });
 
 document.addEventListener("pointerlockchange", () => {
-  if (document.pointerLockElement !== renderer.domElement && !won && !lost) {
-    hud.showStart(true);
+  const locked = document.pointerLockElement === renderer.domElement;
+  if (locked) {
+    closeMenuOverlay();
+    hud.showStart?.(false);
+    return;
+  }
+  if (!won && !lost) {
+    openMenuOverlay({ allowResume: introFinished, focusResume: introFinished });
   }
 });
 
@@ -269,12 +666,20 @@ addEventListener("keydown", (e) => {
   if (e.key.toLowerCase() === "r") resetGame();
 });
 addEventListener("mousedown", (e) => {
-  if (e.button !== 0) return;
-  if (document.pointerLockElement !== renderer.domElement) return;
-  const handled = weaponsCtl?.fire(enemiesCtl);
-  if (!handled) {
-    enemiesCtl?.performAttack(wallGroup);
-  }
+  if (e.button !== 0) return;
+  // allow firing while in third-person mode even if pointer lock isn't active
+  if (
+    cameraMode !== "third" &&
+    document.pointerLockElement !== renderer.domElement
+  )
+    return;
+  const handled = weaponsCtl?.fire(enemiesCtl);
+  if (!handled) {
+    if (!weaponsCtl.isEquipped()) {
+      playerModel.userData.triggerAction?.("punch");
+    }
+    enemiesCtl?.performAttack(wallGroup);
+  }
 });
 
 // Check key collection
@@ -306,31 +711,30 @@ function checkKeyCollection() {
 
 // Start (ensure keys are loaded before animation)
 async function startGame() {
- await loadGameAssets();
+  await loadGameAssets(); // 2. Init controllers, passing the loaded model to enemies
 
-  // 2. Init controllers, passing the loaded model to enemies
-  enemiesCtl = initEnemies(
-    scene,
-    camera,
-    walls,
-    maze,
-    onPlayerDamage,
-    enemyModel // <-- Pass the loaded model here
-  );
-  powerupsCtl = initPowerups(scene, maze, enemiesCtl);
-  weaponsCtl = initWeapons(scene, maze, walls, enemiesCtl, hud, camera);
-  minimap = createMinimap(
-    maze,
-    door,
-    enemiesCtl.enemies,
-    powerupsCtl.powerups,
-    weaponsCtl.weapons,
-    camera,
-    look
-  );
-  
-  // 3. Reset game to spawn everything
-  await resetGame();
+  enemiesCtl = initEnemies(
+    scene,
+    camera,
+    wallGroup, // <-- Add wallGroup here
+    walls,
+    maze,
+    onPlayerDamage,
+    enemyModel // <-- This is now correctly passed as gltfModel
+  );
+  powerupsCtl = initPowerups(scene, maze, enemiesCtl);
+  weaponsCtl = initWeapons(scene, maze, walls, enemiesCtl, hud, camera);
+  minimap = createMinimap(
+    maze,
+    door, 
+    enemiesCtl.enemies,
+    powerupsCtl.powerups,
+    weaponsCtl.weapons,
+    camera,
+    look,
+    powerupsCtl.getCompassState // <-- All other arguments now line up correctly
+  ); // 3. Reset game to spawn everything
+  await resetGame();
 
   // Animate
   let last = performance.now();
@@ -351,6 +755,16 @@ async function startGame() {
       // The camera object's position is now the player's new true position.
       // Store this new position in our tracker.
       playerPositionForCam.copy(camera.position);
+
+      const justLeftGround = wasGrounded && !player.grounded;
+      const justLanded = !wasGrounded && player.grounded;
+      if (justLeftGround) {
+        playerModel.userData.triggerAction?.("jumpStart");
+      }
+      if (justLanded) {
+        playerModel.userData.triggerAction?.("jumpLand");
+      }
+      wasGrounded = player.grounded;
 
       // --- NEW: Additional collision pass for the third-person model ---
       if (cameraMode === "third") {
@@ -383,13 +797,53 @@ async function startGame() {
       checkKeyCollection();
     }
 
+    const compassState = powerupsCtl.getCompassState?.();
+    const compassActive =
+      compassState?.active && (compassState.timeLeft ?? 0) > 0;
+    if (compassActive) {
+      const toExitX = exitWorld.x - camera.position.x;
+      const toExitZ = exitWorld.z - camera.position.z;
+      const distance = Math.hypot(toExitX, toExitZ);
+      const heading = Math.atan2(toExitX, toExitZ);
+      const relative = heading - look.yaw;
+      const angleDeg = THREE.MathUtils.radToDeg(relative);
+
+      hud.updateCompassHint?.({
+        active: true,
+        angle: angleDeg,
+        distance,
+        timeLeft: compassState.timeLeft ?? 0,
+        duration: compassState.duration ?? POWERUP.COMPASS_DURATION,
+      });
+
+      exitBeacon.visible = true;
+      exitBeaconBase.visible = true;
+      const pulse = Math.sin(now * 0.006);
+      const scale = 1 + 0.12 * Math.sin(now * 0.0045);
+      exitBeacon.scale.set(scale, 1, scale);
+      exitBeaconMaterial.opacity = 0.22 + 0.16 * pulse;
+      exitBeaconBaseMaterial.opacity = 0.32 + 0.22 * Math.sin(now * 0.0055);
+      exitBeaconBase.scale.setScalar(1 + 0.18 * Math.sin(now * 0.004));
+    } else {
+      hud.updateCompassHint?.({ active: false });
+      exitBeacon.visible = false;
+      exitBeaconBase.visible = false;
+    }
+
     // Update the visible player model to match the true player position and orientation
     playerModel.position.copy(playerPositionForCam);
-    playerModel.position.y -= playerModel.geometry.parameters.height / 2;
+    playerModel.position.y -= AVATAR_HEIGHT / 2;
+
+    const moveSpeed = player.vel.length();
+    playerModel.userData.animate?.({
+      dt,
+      speed: moveSpeed,
+      grounded: player.grounded,
+      maxSpeed: player.MAX_SPEED,
+    });
 
     // --- MODIFIED: Make player model face its movement direction ---
     if (cameraMode === "third") {
-      const moveSpeed = player.vel.length();
       // Only update rotation if moving to prevent snapping back to a default angle
       if (moveSpeed > 0.01) {
         // player.vel is a Vector2 where .x is world X and .y is world Z

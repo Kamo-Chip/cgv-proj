@@ -41,11 +41,113 @@ export function generateMaze() {
 }
 
 export function buildWalls(scene, maze) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext("2d");
+
+  const u = 12.8;
+  const c1 = "hsl(0deg 0% 0%)";
+  const c2 = "hsl(212deg 4% 9%)";
+  const c3 = "hsl(212deg 7% 36%)";
+
+  ctx.fillStyle = c2;
+  ctx.fillRect(0, 0, 512, 512);
+
+  const drawPattern = (offsetX = 0, offsetY = 0) => {
+    ctx.save();
+    ctx.translate(offsetX, offsetY);
+
+    const w = u * 5;
+    const h = u * 10;
+
+    for (let ty = -h; ty < 512 + h; ty += h) {
+      for (let tx = -w; tx < 512 + w; tx += w) {
+        ctx.save();
+        ctx.translate(tx, ty);
+
+        const grad1 = ctx.createRadialGradient(
+          w * 0.5,
+          h * 0.25,
+          0,
+          w * 0.5,
+          h * 0.25,
+          w * 0.5 * 0.23
+        );
+        grad1.addColorStop(0, c2);
+        grad1.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = grad1;
+        ctx.fillRect(0, 0, w, h);
+
+        const sections = [
+          { x: 0.34, y: 0.46, angle: 270 },
+          { x: 0.66, y: 0.46, angle: 45 },
+          { x: 0.5, y: 0.8, angle: 180 },
+          { x: 0.5, y: 0.8, angle: 135 },
+        ];
+
+        for (const s of sections) {
+          const cx = w * s.x;
+          const cy = h * s.y;
+          const gradient = ctx.createConicGradient((s.angle * Math.PI) / 180, cx, cy);
+          gradient.addColorStop(0, c2);
+          gradient.addColorStop(0.125, c2);
+          gradient.addColorStop(0.126, "rgba(0,0,0,0)");
+          ctx.fillStyle = gradient;
+          ctx.fillRect(0, 0, w, h);
+        }
+
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  };
+
+  drawPattern(-u * 2.5, -u * 5);
+
+  const canvasTexture = new THREE.CanvasTexture(canvas);
+  canvasTexture.wrapS = THREE.RepeatWrapping;
+  canvasTexture.wrapT = THREE.RepeatWrapping;
+  canvasTexture.repeat.set(1.5, 1);
+
+  // Default material uses the procedurally-generated canvas texture.
+  // We'll attempt to load the external metal plate texture and swap it in
+  // when available (CORS permitting). If loading fails, the canvasTexture
+  // remains as a fallback.
   const mat = new THREE.MeshStandardMaterial({
-    color: 0x2a3a4d,
-    roughness: 0.3,
-    metalness: 0.4,
+    map: canvasTexture,
+    color: 0xffffff,
+    roughness: 0.75,
+    metalness: 0.08,
   });
+
+  // External texture URL provided by user
+  const externalTexUrl = "https://cdn.polyhaven.com/asset_img/primary/metal_plate.png?height=780";
+  try {
+    const texLoader = new THREE.TextureLoader();
+    texLoader.load(
+      externalTexUrl,
+      (tex) => {
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+        // tune tiling so the plates look reasonable on wall blocks
+        tex.repeat.set(3, 1.25);
+        // set a conservative anisotropy value; if a renderer is available you
+        // could read renderer.capabilities.getMaxAnisotropy()
+        tex.anisotropy = 8;
+        tex.encoding = THREE.sRGBEncoding;
+        mat.map = tex;
+        mat.needsUpdate = true;
+        console.log("Loaded external wall texture:", externalTexUrl);
+      },
+      undefined,
+      (err) => {
+        console.warn("Failed to load external wall texture, using canvas fallback:", err);
+      }
+    );
+  } catch (e) {
+    console.warn("TextureLoader threw an error; using canvas fallback:", e);
+  }
   const geo = new THREE.BoxGeometry(MAZE.CELL, MAZE.WALL_H, MAZE.CELL);
   const walls = [];
   const group = new THREE.Group();
