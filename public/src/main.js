@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import { audio } from "./audio.js";
-import { MAZE, POWERUP } from "./constants.js";
+import { MAZE, POWERUP, LEVELS, applyLevelPreset } from "./constants.js";
 import { createLookControls } from "./controls.js";
 import {
   buildKeys,
@@ -53,6 +53,15 @@ thirdPersonCam = createThirdPersonCamera(camera, playerPositionForCam);
 
 let activeIntro = null;
 let introFinished = false;
+
+// Level progression state (1-indexed)
+let currentLevel = 1;
+const MAX_LEVEL = Math.max(1, (LEVELS && LEVELS.length) || 1);
+
+// Apply initial level preset (mutates exported const objects in-place)
+applyLevelPreset(currentLevel);
+// Update HUD level display (if available)
+hud.updateLevel?.(currentLevel, LEVELS[currentLevel - 1]?.name);
 
 // Initialize audio (do not resume automatically; wait for user gesture)
 // We'll load sounds but not start the AudioContext until user interaction.
@@ -239,7 +248,11 @@ if (terminateBtn) {
     introFinished = false;
     setResumeButtonVisible(false);
     try {
-      await resetGame();
+  // Reset progression to level 1 when terminating session
+  currentLevel = 1;
+  applyLevelPreset(currentLevel);
+  hud.updateLevel?.(currentLevel, LEVELS[currentLevel - 1]?.name);
+  await resetGame();
       openMenuOverlay({ allowResume: false });
       initiateBtn && (initiateBtn.disabled = false);
     } finally {
@@ -389,6 +402,9 @@ async function resetGame() {
   lost = false;
   hud.hideWin();
   hud.hideLose();
+  // hide any transient Next Level button (if present)
+  const nb = document.getElementById("nextLevelBtn");
+  if (nb) nb.style.display = "none";
   cameraMode = "first";
   player.setHealth(100);
   player.resetToStart(1, 1, door.position);
@@ -899,6 +915,49 @@ async function startGame() {
       }
       won = true;
       hud.showWin();
+
+      // If there are further levels, show a Next Level button inside the win panel
+      try {
+        const winPanel = document.querySelector("#win .panel");
+        if (winPanel) {
+          let nextBtn = document.getElementById("nextLevelBtn");
+          if (!nextBtn) {
+            nextBtn = document.createElement("button");
+            nextBtn.id = "nextLevelBtn";
+            nextBtn.textContent = "Next Level";
+            nextBtn.style.marginLeft = "8px";
+            winPanel.appendChild(nextBtn);
+          }
+          if (currentLevel < MAX_LEVEL) {
+            nextBtn.style.display = "inline-block";
+            nextBtn.disabled = false;
+            const gotoNext = async () => {
+              nextBtn.disabled = true;
+              // Advance level, apply presets, and respawn content
+              currentLevel = Math.min(MAX_LEVEL, currentLevel + 1);
+              applyLevelPreset(currentLevel);
+              // Update HUD with new level
+              hud.updateLevel?.(currentLevel, LEVELS[currentLevel - 1]?.name);
+              // Hide win overlay and reset flags
+              hud.hideWin();
+              won = false;
+              await resetGame();
+              // resume play
+              lockPointer();
+            };
+            // Use a fresh listener (helps if the element was reused)
+            nextBtn.replaceWith(nextBtn.cloneNode(true));
+            nextBtn = document.getElementById("nextLevelBtn");
+            nextBtn.addEventListener("click", gotoNext);
+          } else {
+            // last level — keep default message
+            if (nextBtn) nextBtn.style.display = "none";
+          }
+        }
+      } catch (e) {
+        // non-fatal
+        console.warn("Next level UI failed:", e);
+      }
     }
 
     // Glow pulse
