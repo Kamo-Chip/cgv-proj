@@ -29,7 +29,7 @@ export const MOVE = {
 
 export const ENEMY = {
   SPEED: 1.6,
-  RADIUS: 0.28,
+  RADIUS: 0.4,
   DMG_PER_SEC: 1,
   REPLAN_DT: 0.1,
   TARGET_COUNT: 6,
@@ -86,7 +86,7 @@ export const LEVELS = [
   {
     // Level 1: Easy - few enemies, more powerups
     name: "Level 1",
-    ENEMY: { TARGET_COUNT: 4, SPEED: 1.4 },
+    ENEMY: { TARGET_COUNT: 20, SPEED: 1.4 },
     POWERUP: { COUNT: 12 },
     MOVE: { MAX_SPEED: 18 },
   },

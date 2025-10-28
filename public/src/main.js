@@ -216,8 +216,9 @@ if (initiateBtn) {
     if (initiateBtn.disabled) return;
     initiateBtn.disabled = true;
     closeMenuOverlay();
+    lockPointer();
     try {
-      await playIntroSequence();
+      audio.play?.("intro_cinematic", { volume: 0.3 });
     } finally {
       initiateBtn.disabled = false;
     }
@@ -248,11 +249,11 @@ if (terminateBtn) {
     introFinished = false;
     setResumeButtonVisible(false);
     try {
-  // Reset progression to level 1 when terminating session
-  currentLevel = 1;
-  applyLevelPreset(currentLevel);
-  hud.updateLevel?.(currentLevel, LEVELS[currentLevel - 1]?.name);
-  await resetGame();
+      // Reset progression to level 1 when terminating session
+      currentLevel = 1;
+      applyLevelPreset(currentLevel);
+      hud.updateLevel?.(currentLevel, LEVELS[currentLevel - 1]?.name);
+      await resetGame();
       openMenuOverlay({ allowResume: false });
       initiateBtn && (initiateBtn.disabled = false);
     } finally {
@@ -368,12 +369,12 @@ function onPlayerDamage(dmg) {
       console.error("Failed to play level_lose sound:", e);
     }
     playerModel.userData.triggerAction?.("death");
-    // Ensure the 3D avatar is visible and remains visible when the player dies,
-    // regardless of the current camera mode.
-    cameraMode = "third";
-    playerModel.visible = true;
+    // // Ensure the 3D avatar is visible and remains visible when the player dies,
+    // // regardless of the current camera mode.
+    // cameraMode = "first";
+    // playerModel.visible = true;
     // lock camera mode to third-person so the death fall is always visible
-    cameraMode = "third";
+    cameraMode = "first";
     lost = true;
     hud.showLose();
   }
@@ -442,202 +443,6 @@ async function resetGame() {
   ) {
     hud.showStart(true);
   }
-}
-
-// Intro camera sequence (shorter, skip-able, restores first-person control)
-async function playIntroSequence() {
-  if (activeIntro) return activeIntro.promise;
-
-  let resolveIntro;
-  const promise = new Promise((resolve) => {
-    resolveIntro = resolve;
-  });
-
-  const introState = {
-    promise,
-    skipRequested: false,
-    finished: false,
-  };
-  activeIntro = introState;
-  introFinished = false;
-
-  cameraMode = "third";
-
-  const playerPos = playerPositionForCam.clone();
-
-  let introAudio = null;
-  try {
-    introAudio = audio.play?.("intro_cinematic", { volume: 0.7 });
-  } catch (e) {
-    console.warn("Intro sound failed to play:", e);
-  }
-
-  const waypoints = [
-    new THREE.Vector3(playerPos.x - 9, 4.6, playerPos.z - 9),
-    new THREE.Vector3(playerPos.x - 6.2, 3.6, playerPos.z - 5.6),
-    new THREE.Vector3(playerPos.x - 3.6, 2.8, playerPos.z - 3.0),
-    new THREE.Vector3(playerPos.x - 1.8, 2.3, playerPos.z - 1.4),
-    new THREE.Vector3(
-      playerPos.x + Math.sin(Math.PI * 0.82) * 2.7,
-      playerPos.y + 1.8,
-      playerPos.z + Math.cos(Math.PI * 0.82) * 2.7
-    ),
-    new THREE.Vector3(
-      playerPos.x + Math.sin(Math.PI * 0.6) * 2.2,
-      playerPos.y + 1.35,
-      playerPos.z + Math.cos(Math.PI * 0.6) * 2.2
-    ),
-    new THREE.Vector3(
-      playerPos.x + Math.sin(Math.PI * 0.35) * 2.0,
-      playerPos.y + 1.1,
-      playerPos.z + Math.cos(Math.PI * 0.35) * 2.0
-    ),
-    new THREE.Vector3(playerPos.x, playerPos.y + 1.0, playerPos.z - 2.0),
-  ];
-
-  const mazePhaseTime = 1.9;
-  const arrivalTime = 2.05;
-  const holdJumpTime = 1.0;
-  const arcPhaseTime = 1.6;
-  const totalDuration = mazePhaseTime + arcPhaseTime;
-  const landingTime = arrivalTime + holdJumpTime;
-
-  const lookAtTarget = new THREE.Vector3(
-    playerPos.x,
-    playerPos.y + 0.6,
-    playerPos.z
-  );
-  const tempVec = new THREE.Vector3();
-
-  const startTime = performance.now();
-  let lastFrameTime = startTime;
-  let jumpHoldTriggered = false;
-  let jumpLandTriggered = false;
-  let playerModelShown = false;
-
-  const skipActivationDelayMs = 220;
-  const allowSkipAfter = startTime + skipActivationDelayMs;
-
-  const handleKey = (e) => {
-    if (introState.finished) return;
-    if (performance.now() < allowSkipAfter) return;
-    const key = e.key?.toLowerCase();
-    if (key === " " || key === "enter" || key === "escape" || key === "skip") {
-      introState.skipRequested = true;
-    }
-  };
-  const handlePointer = () => {
-    if (introState.finished) return;
-    if (performance.now() < allowSkipAfter) return;
-    introState.skipRequested = true;
-  };
-
-  document.addEventListener("keydown", handleKey);
-  document.addEventListener("pointerdown", handlePointer);
-
-  const finalizeIntro = () => {
-    if (introState.finished) return;
-    introState.finished = true;
-    document.removeEventListener("keydown", handleKey);
-    document.removeEventListener("pointerdown", handlePointer);
-    try {
-      introAudio?.stop?.(0);
-    } catch (err) {
-      console.warn("Failed to stop intro audio:", err);
-    }
-    if (!jumpLandTriggered) {
-      playerModel.userData.triggerAction?.("jumpLand");
-      jumpLandTriggered = true;
-    }
-    camera.position.copy(waypoints[waypoints.length - 1]);
-    camera.lookAt(lookAtTarget);
-    cameraMode = "first";
-    playerModel.visible = false;
-    activeIntro = null;
-    introFinished = true;
-    resolveIntro();
-  };
-
-  function animateIntro(now) {
-    if (introState.finished) return;
-
-    const rawElapsed = (now - startTime) / 1000;
-    const elapsed = Math.min(
-      introState.skipRequested ? totalDuration : rawElapsed,
-      totalDuration
-    );
-    const dt = Math.min((now - lastFrameTime) / 1000, 0.05);
-    lastFrameTime = now;
-
-    let currentPos;
-    if (elapsed < mazePhaseTime) {
-      const phase1T = elapsed / mazePhaseTime;
-      const eased = 1 - Math.pow(1 - phase1T, 3);
-      const scaledT = eased * 3;
-      const segment = Math.min(Math.floor(scaledT), 2);
-      const segmentProgress = scaledT - segment;
-      const smoothProgress =
-        segmentProgress * segmentProgress * (3 - 2 * segmentProgress);
-     currentPos = tempVec.lerpVectors(
-        waypoints[segment],
-        waypoints[Math.min(segment + 1, waypoints.length - 1)],
-        smoothProgress
-      );
-    } else {
-      const phase2T = (elapsed - mazePhaseTime) / arcPhaseTime;
-      const eased =
-        phase2T < 0.5
-          ? 4 * phase2T * phase2T * phase2T
-          : 1 - Math.pow(-2 * phase2T + 2, 3) / 2;
-      const scaledT = eased * 4;
-      const segment = Math.min(Math.floor(scaledT), 3) + 3;
-      const segmentProgress = scaledT - (segment - 3);
-      const smoothProgress =
-        segmentProgress * segmentProgress * (3 - 2 * segmentProgress);
-      currentPos = tempVec.lerpVectors(
-        waypoints[segment],
-        waypoints[Math.min(segment + 1, waypoints.length - 1)],
-        smoothProgress
-      );
-    }
-
-    camera.position.copy(currentPos);
-    camera.lookAt(lookAtTarget);
-
-    if (elapsed >= arrivalTime && !jumpHoldTriggered) {
-      playerModel.visible = true;
-      playerModel.position.copy(playerPositionForCam);
-      playerModel.position.y -= AVATAR_HEIGHT / 2;
-      playerModel.userData.triggerAction?.("jumpHold");
-      jumpHoldTriggered = true;
-      playerModelShown = true;
-    }
-
-    if (elapsed >= landingTime && !jumpLandTriggered) {
-      playerModel.userData.triggerAction?.("jumpLand");
-      jumpLandTriggered = true;
-    }
-
-    if (playerModelShown) {
-      playerModel.userData.animate?.({
-        dt,
-        speed: 0,
-        grounded: jumpLandTriggered,
-        maxSpeed: player.MAX_SPEED,
-      });
-    }
-
-    if (elapsed >= totalDuration) {
-      finalizeIntro();
-      return;
-    }
-
-    requestAnimationFrame(animateIntro);
-  }
-
-  requestAnimationFrame(animateIntro);
-
-  return promise;
 }
 
 // Pointer lock & overlays
@@ -742,7 +547,7 @@ async function startGame() {
   weaponsCtl = initWeapons(scene, maze, walls, enemiesCtl, hud, camera);
   minimap = createMinimap(
     maze,
-    door, 
+    door,
     enemiesCtl.enemies,
     powerupsCtl.powerups,
     weaponsCtl.weapons,

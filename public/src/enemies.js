@@ -432,7 +432,7 @@ export function initEnemies(
         for (const e of enemies) {
           const de = Math.hypot(
             w.x - e.mesh.position.x,
-            w.z - e.mesh.position.z
+            w.z - e.mesh.position.z,
           );
           if (de < ENEMY.SEPARATION_DIST) {
             ok = false;
