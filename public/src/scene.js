@@ -3,6 +3,34 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { WORLD, MAZE } from "./constants.js";
 
+function setSky(scene) {
+  const loader = new THREE.CubeTextureLoader();
+  const basePath = "./sky/";
+  const urls = [
+    basePath + "redeclipse_rt.png", // +X
+    basePath + "redeclipse_lf.png", // -X
+    basePath + "redeclipse_up.png", // +Y
+    basePath + "redeclipse_dn.png", // -Y
+    basePath + "redeclipse_ft.png", // +Z
+    basePath + "redeclipse_bk.png", // -Z
+  ];
+
+  const cube = loader.load(urls, () => {
+    cube.colorSpace = THREE.SRGBColorSpace;
+    // ↓ kill mipmaps to reduce seam artifacts
+    cube.generateMipmaps = false;
+    cube.minFilter = THREE.LinearFilter;
+    cube.magFilter = THREE.LinearFilter;
+    scene.background = cube;
+
+    // For reflections, use a PMREM-filtered version (seam-safe)
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const env = pmrem.fromCubemap(cube).texture;
+    scene.environment = env;
+    // keep cube as background; use env for PBR
+  });
+}
+
 export function createScene() {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(WORLD.BG_COLOR);
@@ -31,6 +59,10 @@ export function createScene() {
   dir.shadow.mapSize.set(1024, 1024);
   dir.shadow.camera.far = 80;
   scene.add(hemi, dir);
+
+  // Use your sunset image here
+  setSky(scene);
+
 
   // Ground floor using GLB asset
   const loader = new GLTFLoader();
