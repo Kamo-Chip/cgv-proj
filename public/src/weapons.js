@@ -582,9 +582,14 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
           } catch (e) {
             console.error("Failed to play metal_hit sound:", e);
           }
+         if (typeof enemiesCtl.applyDamage === "function") {
+          enemiesCtl.applyDamage(enemy, p.dmg);
+        } else {
+          // Fallback just in case (but the function should be there)
           enemy.hp -= p.dmg;
-          enemy.hitFlash = 1.0; // Strong flash for projectile hit
+          enemy.hitFlash = 1.0; 
           if (enemy.hp <= 0 && !enemy.dead) enemy.dead = true;
+        }
         }
 
         // remove projectile

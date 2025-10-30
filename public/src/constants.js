@@ -29,7 +29,7 @@ export const MOVE = {
 
 export const ENEMY = {
   SPEED: 1.6,
-  RADIUS: 0.4,
+  RADIUS: 0.49,
   DMG_PER_SEC: 1,
   REPLAN_DT: 0.1,
   TARGET_COUNT: 6,

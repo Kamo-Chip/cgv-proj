@@ -468,7 +468,7 @@ export function initEnemies(
       const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
 
-      const targetDiameter = BASE_RADIUS * 2; // Ensure maxDim is not zero to avoid division by zero
+      const targetDiameter = BASE_RADIUS * 1.35; // Ensure maxDim is not zero to avoid division by zero
       const maxDim = Math.max(size.x, size.y, size.z);
       const scale = maxDim > 1e-5 ? targetDiameter / maxDim : 1;
       mesh.scale.setScalar(scale);
@@ -480,13 +480,15 @@ export function initEnemies(
       // Define the offset from the model's origin (0,0,0) down to its visual base/feet.
       // YOU MUST ADJUST THIS VALUE FOR YOUR MODEL!
       // Negative value means origin is ABOVE the base.
-      const originToBaseOffset = -0.1; // <-- !!! EXAMPLE VALUE - TUNE THIS !!!
+      const originToBaseOffset = 0; // <-- !!! EXAMPLE VALUE - TUNE THIS !!!
 
       // Calculate posY to place the *base* near Y=0, accounting for the scale
       // (originToBaseOffset * scale) = world distance from scaled origin to the base
       const posY = -(originToBaseOffset * scale);
 
-      mesh.position.set(w.x, posY, w.z);
+      const hoverOffset = 0.67
+
+      mesh.position.set(w.x, posY+ hoverOffset, w.z);
 
       // Enable shadows for all sub-meshes
 
