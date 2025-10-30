@@ -199,11 +199,15 @@ export function createScene() {
   grid.material.transparent = true;
   scene.add(grid);
 
+  // Replace the addStarField function (around line 150)
   const addStarField = () => {
     const starCount = 1400;
     const radiusMin = 160;
     const radiusMax = 220;
     const positions = new Float32Array(starCount * 3);
+    const sizes = new Float32Array(starCount);
+    const phases = new Float32Array(starCount); // For sparkle animation
+    
     for (let i = 0; i < starCount; i++) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
@@ -213,50 +217,214 @@ export function createScene() {
       positions[i * 3 + 0] = r * sinPhi * Math.cos(theta);
       positions[i * 3 + 1] = r * cosPhi;
       positions[i * 3 + 2] = r * sinPhi * Math.sin(theta);
+      
+      // Vary star sizes
+      sizes[i] = 1.2 + Math.random() * 2.0;
+      // Random phase for sparkle animation
+      phases[i] = Math.random() * Math.PI * 2;
     }
+    
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    const material = new THREE.PointsMaterial({
-      color: 0xffffff,
-      size: 1.6,
-      sizeAttenuation: true,
+    geometry.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
+    geometry.setAttribute("phase", new THREE.BufferAttribute(phases, 1));
+    
+    // Custom shader material for sparkling stars
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        time: { value: 0 }
+      },
+      vertexShader: `
+        attribute float size;
+        attribute float phase;
+        varying float vPhase;
+        
+        void main() {
+          vPhase = phase;
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = size * (300.0 / -mvPosition.z);
+          gl_Position = projectionMatrix * mvPosition;
+        }
+      `,
+      fragmentShader: `
+        uniform float time;
+        varying float vPhase;
+        
+        void main() {
+          // Circular point shape
+          vec2 center = gl_PointCoord - vec2(0.5);
+          float dist = length(center);
+          if (dist > 0.5) discard;
+          
+          // Sparkle effect: varies between 0.6 and 1.0
+          float sparkle = 0.6 + 0.4 * sin(time * 2.0 + vPhase);
+          
+          // Bright white color
+          vec3 color = vec3(1.0, 1.0, 1.0);
+          
+          // Soft edges
+          float alpha = smoothstep(0.5, 0.3, dist) * sparkle;
+          
+          gl_FragColor = vec4(color, alpha);
+        }
+      `,
       transparent: true,
-      opacity: 0.85,
       depthWrite: false,
+      blending: THREE.AdditiveBlending
     });
+    
     const stars = new THREE.Points(geometry, material);
     stars.renderOrder = -5;
     stars.frustumCulled = false;
+    
+    // Store reference for animation
+    stars.userData.material = material;
+    
     scene.add(stars);
+    return stars;
   };
 
+  // Replace the addMoon function (around line 185)
   const addMoon = () => {
     const moonGroup = new THREE.Group();
-    const moon = new THREE.Mesh(
-      new THREE.SphereGeometry(8, 40, 40),
-      new THREE.MeshStandardMaterial({
-        color: 0xfdf5ce,
-        emissive: 0xfbe4a0,
-        emissiveIntensity: 2.2,
-        roughness: 0.35,
-        metalness: 0,
-      })
-    );
+    
+    // Create moon with high detail geometry for craters
+    const moonGeometry = new THREE.SphereGeometry(20, 128, 128);
+    
+    // Procedurally generate craters by displacing vertices
+    const positions = moonGeometry.attributes.position;
+    const vertex = new THREE.Vector3();
+    
+    // Seeded random for consistent crater placement
+    const craters = [];
+    const numCraters = 200; // Increased number of craters
+    for (let i = 0; i < numCraters; i++) {
+      craters.push({
+        x: (Math.random() - 0.5) * 2,
+        y: (Math.random() - 0.5) * 2,
+        z: (Math.random() - 0.5) * 2,
+        size: 0.1 + Math.random() * 0.4,
+        depth: 0.5 + Math.random() * 1.0 // Deeper craters
+      });
+    }
+    
+    // Apply crater displacement to vertices
+    for (let i = 0; i < positions.count; i++) {
+      vertex.fromBufferAttribute(positions, i);
+      const originalLength = vertex.length();
+      vertex.normalize();
+      
+      let displacement = 0;
+      
+      // Calculate displacement from all craters
+      for (const crater of craters) {
+        const craterCenter = new THREE.Vector3(crater.x, crater.y, crater.z).normalize();
+        const distance = vertex.distanceTo(craterCenter);
+        
+        if (distance < crater.size) {
+          // Smooth crater depression with sharper edges
+          const falloff = 1 - (distance / crater.size);
+          const craterDepth = Math.pow(falloff, 1.5) * crater.depth * 0.6;
+          displacement -= craterDepth;
+        }
+      }
+      
+      // Add more pronounced noise for surface roughness
+      const noise = (Math.sin(vertex.x * 40) * Math.cos(vertex.y * 40) * Math.sin(vertex.z * 40)) * 0.08;
+      displacement += noise;
+      
+      vertex.multiplyScalar(originalLength + displacement);
+      positions.setXYZ(i, vertex.x, vertex.y, vertex.z);
+    }
+    
+    positions.needsUpdate = true;
+    moonGeometry.computeVertexNormals(); // Recompute normals for proper lighting
+    
+    // Much brighter moon material with higher contrast
+    const moonMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0xffffff,
+      emissiveIntensity: 1.5,
+      roughness: 0.95,
+      metalness: 0.0,
+    });
+    
+    const moon = new THREE.Mesh(moonGeometry, moonMaterial);
     moon.castShadow = false;
     moon.receiveShadow = false;
     moonGroup.add(moon);
+    
+    // Initial position for elliptical orbit
     moonGroup.position.set(-70, 115, -55);
+    
+    // Store orbit parameters
+    moonGroup.userData.orbit = {
+      a: 80,  // semi-major axis (ellipse width)
+      b: 60,  // semi-minor axis (ellipse height)
+      centerX: 0,
+      centerY: 115,
+      centerZ: 0,
+      angle: Math.atan2(-55, -70), // Initial angle
+      speed: 0.05, // Orbit speed (radians per second)
+      tilt: Math.PI / 12 // Slight tilt to orbit plane
+    };
+    
+    // Store rotation parameters
+    moonGroup.userData.rotation = {
+      speed: 0.02 // Rotation speed on its axis
+    };
+    
     scene.add(moonGroup);
-
-    const moonLight = new THREE.PointLight(0xfbe8b4, 0.55, 210, 1.4);
+    
+    // Much brighter point light
+    const moonLight = new THREE.PointLight(0xffffff, 2.5, 300, 1.2);
     moonLight.position.copy(moonGroup.position);
     scene.add(moonLight);
+    
+    // Store light reference
+    moonGroup.userData.light = moonLight;
+    
+    return moonGroup;
   };
 
-  addStarField();
+  // Add this before the return statement in createScene() (around line 240)
+  const stars = addStarField();
+  const moon = addMoon();
 
-  
-  addMoon();
+  // Animation function for dynamic skybox
+  function updateSkybox(deltaTime) {
+    // Animate stars sparkle
+    if (stars && stars.userData.material) {
+      stars.userData.material.uniforms.time.value += deltaTime;
+    }
+    
+    // Animate moon orbit and rotation
+    if (moon && moon.userData.orbit) {
+      const orbit = moon.userData.orbit;
+      const rot = moon.userData.rotation;
+      
+      // Update orbit angle
+      orbit.angle += orbit.speed * deltaTime;
+      
+      // Calculate elliptical position
+      const x = orbit.centerX + orbit.a * Math.cos(orbit.angle);
+      const z = orbit.centerZ + orbit.b * Math.sin(orbit.angle);
+      const y = orbit.centerY + orbit.a * 0.15 * Math.sin(orbit.angle * 2); // Slight vertical movement
+      
+      moon.position.set(x, y, z);
+      
+      // Rotate moon on its axis
+      moon.rotation.y += rot.speed * deltaTime;
+      
+      // Update light position to follow moon
+      if (moon.userData.light) {
+        moon.userData.light.position.copy(moon.position);
+      }
+    }
+  }
+
+// Store update function for use in main loop
+scene.userData.updateSkybox = updateSkybox;
 
   // Resize
   addEventListener("resize", () => {

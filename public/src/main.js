@@ -755,7 +755,7 @@ async function startGame() {
               if (levelPreset && levelPreset.skybox) {
                 updateSkybox(scene, levelPreset.skybox);
               }
-              
+
               // Update HUD with new level
               hud.updateLevel?.(currentLevel, LEVELS[currentLevel - 1]?.name);
               // Hide win overlay and reset flags
@@ -785,6 +785,10 @@ async function startGame() {
 
     minimap?.draw();
     cameraShake.update(dt);
+
+    // ADD THIS LINE - Animate moon and stars
+    scene.userData.updateSkybox?.(dt);
+
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   }
