@@ -3,8 +3,50 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { WORLD, MAZE } from "./constants.js";
 
+// Modify the createSkybox function to accept custom URLs
+function createSkybox(scene, skyboxUrls = null) {
+  const loader = new THREE.CubeTextureLoader();
+  
+  // Default skybox if none provided
+  const defaultSkybox = [
+    './skybox/space_ft.png',
+    './skybox/space_bk.png',
+    './skybox/space_up.png',
+    './skybox/space_dn.png',
+    './skybox/space_rt.png',
+    './skybox/space_lf.png'
+  ];
+
+  const urls = skyboxUrls || defaultSkybox;
+
+  // Set a fallback color while loading
+  scene.background = new THREE.Color(WORLD.BG_COLOR);
+
+  const skyboxTexture = loader.load(
+    urls,
+    (texture) => {
+      texture.encoding = THREE.sRGBEncoding; // ADD THIS LINE
+      // Success callback - texture loaded
+      scene.background = texture;
+      console.log('Skybox loaded successfully');
+    },
+    undefined,
+    (error) => {
+      // Error callback
+      console.error('Failed to load skybox:', error);
+      console.log('Keeping fallback solid color background');
+    }
+  );
+  
+  return skyboxTexture;
+}
+
 export function createScene() {
   const scene = new THREE.Scene();
+
+   // Add this line to create the skybox
+  createSkybox(scene);
+
   scene.background = new THREE.Color(WORLD.BG_COLOR);
   scene.fog = new THREE.Fog(WORLD.BG_COLOR, WORLD.FOG_NEAR, WORLD.FOG_FAR);
 
@@ -212,6 +254,8 @@ export function createScene() {
   };
 
   addStarField();
+
+  
   addMoon();
 
   // Resize
@@ -222,6 +266,16 @@ export function createScene() {
   });
 
   return { scene, renderer, camera };
+}
+
+// Add this new export function to update skybox
+export function updateSkybox(scene, skyboxUrls) {
+  if (!skyboxUrls || !Array.isArray(skyboxUrls)) {
+    console.warn('Invalid skybox URLs provided');
+    return;
+  }
+  
+  createSkybox(scene, skyboxUrls);
 }
 
 // Add after createScene function, before export

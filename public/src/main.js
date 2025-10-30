@@ -20,6 +20,7 @@ import { gridToWorld } from "./utils.js";
 import { initWeapons } from "./weapons.js";
 import { createPlayerAvatar, AVATAR_HEIGHT } from "./player-avatar.js";
 import { initEnemies } from "./enemies.js";
+import { updateSkybox } from "./scene.js";
 
 const { scene, renderer, camera } = createScene();
 const hud = createHUD();
@@ -417,6 +418,13 @@ async function resetGame() {
   powerupsCtl?.reset(player);
   weaponsCtl?.reset(player);
 
+
+  // Update skybox for this level
+  const levelPreset = LEVELS[currentLevel - 1];
+  if (levelPreset && levelPreset.skybox) {
+    updateSkybox(scene, levelPreset.skybox);
+  }
+
   // Remove old keys
   for (const k of keyMeshes) scene.remove(k.mesh);
   // Generate new keys
@@ -741,6 +749,13 @@ async function startGame() {
               // Advance level, apply presets, and respawn content
               currentLevel = Math.min(MAX_LEVEL, currentLevel + 1);
               applyLevelPreset(currentLevel);
+
+              // Add this line to update skybox when advancing level
+              const levelPreset = LEVELS[currentLevel - 1];
+              if (levelPreset && levelPreset.skybox) {
+                updateSkybox(scene, levelPreset.skybox);
+              }
+              
               // Update HUD with new level
               hud.updateLevel?.(currentLevel, LEVELS[currentLevel - 1]?.name);
               // Hide win overlay and reset flags
