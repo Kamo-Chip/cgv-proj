@@ -131,7 +131,6 @@ const initiateBtn = document.getElementById("initiateBtn");
 const resumeBtn = document.getElementById("resumeBtn");
 const menuSettingsBtn = document.getElementById("menuSettingsBtn");
 const terminateBtn = document.getElementById("terminateBtn");
-const menuBarResumeBtn = document.getElementById("menuBarResumeBtn");
 
 let menuGridIntervalId = null;
 const menuTiles = [];
@@ -172,10 +171,6 @@ function stopMenuGridAnim() {
 function setResumeButtonVisible(visible) {
   if (resumeBtn) {
     resumeBtn.disabled = !visible;
-  }
-  if (menuBarResumeBtn) {
-    menuBarResumeBtn.style.display = visible ? "inline-block" : "none";
-    menuBarResumeBtn.disabled = !visible;
   }
 }
 
@@ -270,21 +265,6 @@ if (resumeBtn) {
     closeMenuOverlay();
     hud.showStart?.(false);
     // Resume gameplay music
-    if (!gameplayMusicSource) {
-      gameplayMusicSource = audio.play("gameplay_background", { volume: 0.35, loop: true, isMusic: true });
-    }
-    lockPointer();
-  });
-}
-
-if (menuBarResumeBtn) {
-  menuBarResumeBtn.addEventListener("click", () => {
-    if (menuBarResumeBtn.disabled) return;
-    try {
-      audio.play("button_click", { volume: 0.7 });
-    } catch (e) {}
-    closeMenuOverlay();
-    hud.showStart?.(false);
     if (!gameplayMusicSource) {
       gameplayMusicSource = audio.play("gameplay_background", { volume: 0.35, loop: true, isMusic: true });
     }

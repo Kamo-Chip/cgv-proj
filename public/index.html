@@ -44,36 +44,39 @@
 
       .hud {
         position: fixed;
-        left: 24px;
-        top: 24px;
-        width: clamp(280px, 28vw, 360px);
+        left: 28px;
+        top: 28px;
+        width: clamp(300px, 30vw, 392px);
         background:
-          linear-gradient(160deg, rgba(18, 28, 42, 0.92) 0%, rgba(9, 14, 22, 0.92) 60%, rgba(19, 36, 54, 0.9) 100%),
-          radial-gradient(circle at -20% -10%, rgba(80, 162, 255, 0.35) 0%, transparent 55%);
-        border: 1px solid rgba(90, 140, 255, 0.35);
-        border-radius: 18px;
-        padding: 20px 24px 22px;
+          linear-gradient(160deg, rgba(18, 28, 42, 0.95) 0%, rgba(9, 14, 22, 0.94) 60%, rgba(21, 38, 58, 0.93) 100%),
+          radial-gradient(circle at -20% -10%, rgba(80, 162, 255, 0.4) 0%, transparent 55%);
+        border: 1px solid rgba(96, 148, 255, 0.38);
+        border-radius: 22px;
+        padding: 30px 36px 32px;
         font-size: 13px;
-        line-height: 1.5;
+        line-height: 1.55;
         letter-spacing: 0.01em;
         user-select: none;
-        backdrop-filter: blur(18px);
+        backdrop-filter: blur(20px);
         box-shadow:
-          0 18px 45px rgba(0, 8, 24, 0.55),
-          inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+          0 20px 48px rgba(0, 8, 24, 0.6),
+          inset 0 0 0 1px rgba(255, 255, 255, 0.05);
         z-index: 5;
         overflow: hidden;
         opacity: 0;
-        transform: translateY(-24px) scale(0.97);
+        transform: translateY(-22px) scale(0.97);
         transition: opacity 0.45s ease, transform 0.45s ease;
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
       }
       .hud::before {
         content: "";
         position: absolute;
         inset: 0;
-        background: linear-gradient(90deg, rgba(72, 160, 255, 0.12), rgba(72, 255, 214, 0.06));
-        opacity: 0.35;
+        background: linear-gradient(120deg, rgba(72, 160, 255, 0.16), rgba(72, 255, 214, 0.08));
         pointer-events: none;
+        opacity: 0.45;
       }
       .hud::after {
         content: "";
@@ -82,10 +85,21 @@
         top: 0;
         width: 3px;
         height: 100%;
-        background: linear-gradient(180deg, rgba(72, 160, 255, 0.9), rgba(72, 255, 214, 0));
-        box-shadow: 0 0 18px rgba(72, 160, 255, 0.65);
+        background: linear-gradient(180deg, rgba(72, 160, 255, 0.95), rgba(72, 255, 214, 0));
+        box-shadow: 0 0 20px rgba(72, 160, 255, 0.6);
         opacity: 0;
         transition: opacity 0.4s ease;
+      }
+      @keyframes hud-scan {
+        0% {
+          opacity: 0.25;
+        }
+        50% {
+          opacity: 0.9;
+        }
+        100% {
+          opacity: 0.25;
+        }
       }
       body.hud-active .hud {
         opacity: 1;
@@ -94,17 +108,6 @@
       body.hud-active .hud::after {
         opacity: 1;
         animation: hud-scan 4s linear infinite;
-      }
-      @keyframes hud-scan {
-        0% {
-          opacity: 0.25;
-        }
-        50% {
-          opacity: 0.85;
-        }
-        100% {
-          opacity: 0.25;
-        }
       }
       .hud kbd {
         background: rgba(11, 22, 42, 0.65);
@@ -118,10 +121,10 @@
         box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
       }
       .hud__intro {
+        position: relative;
         display: flex;
-        gap: 14px;
+        gap: 18px;
         align-items: flex-start;
-        margin-bottom: 16px;
         opacity: 0.85;
         transform: translateY(6px);
         transition: opacity 0.4s ease, transform 0.4s ease;
@@ -156,12 +159,11 @@
         position: relative;
         height: 1px;
         background: linear-gradient(90deg, rgba(72, 160, 255, 0), rgba(72, 160, 255, 0.7), rgba(72, 160, 255, 0));
-        margin: 4px 0 18px;
+        margin: 0;
       }
       .hud__section {
         display: grid;
-        gap: 12px;
-        margin-bottom: 18px;
+        gap: 16px;
         opacity: 0.8;
         transform: translateY(12px);
         transition: opacity 0.4s ease, transform 0.4s ease;
@@ -171,9 +173,6 @@
       }
       .hud__section:nth-of-type(3) {
         transition-delay: 0.16s;
-      }
-      .hud__section:last-of-type {
-        margin-bottom: 0;
       }
       body.hud-active .hud__section {
         opacity: 1;
@@ -679,56 +678,9 @@
         }
       }
 
-      .menu-bar {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 54px;
-        padding: 0 24px;
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 14px;
-        background: linear-gradient(90deg, rgba(0, 0, 0, 0.76), rgba(20, 28, 42, 0.78));
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-        z-index: 2100;
-        backdrop-filter: blur(6px);
-      }
-      .menu-bar__btn {
-        border: 1px solid rgba(255, 255, 255, 0.26);
-        background: rgba(0, 0, 0, 0.6);
-        color: #ffffff;
-        padding: 0.55rem 1.6rem;
-        font-family: "Orbitron", monospace;
-        font-size: 0.82rem;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-        cursor: pointer;
-        transition: all 0.28s ease;
-      }
-      .menu-bar__btn:hover {
-        border-color: rgba(255, 255, 255, 0.82);
-        background: rgba(255, 255, 255, 0.16);
-        color: #ffffff;
-      }
-      .menu-bar__btn:active {
-        transform: translateY(1px);
-        background: rgba(255, 255, 255, 0.2);
-      }
-      .menu-bar__btn:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-      }
     </style>
   </head>
   <body>
-    <div class="menu-bar">
-      <button id="menuBarResumeBtn" class="menu-bar__btn" type="button" style="display: none">
-        Return to Game
-      </button>
-    </div>
     <div id="menuOverlay" class="menu-overlay">
       <div class="neural-card">
         <div class="neural-card__grid" id="menuGrid"></div>
