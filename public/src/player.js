@@ -15,16 +15,19 @@ export class Player {
     this.yOffset = 0;
     this.grounded = true;
 
-    this.GRAVITY = MOVE.BASE_GRAVITY;
-    this.JUMP_V = MOVE.BASE_JUMP_V;
+    // this.GRAVITY = MOVE.BASE_GRAVITY;
+    // this.JUMP_V = MOVE.BASE_JUMP_V;
+
+    this.GRAVITY = MOVE.BASE_GRAVITY * POWERUP.GRAVITY_MULT;
+    this.JUMP_V = MOVE.BASE_JUMP_V * POWERUP.JUMP_MULT;
 
     this.health = 100;
     this.hud = hud;
     this.keys = new Set();
     this.collectedKeys = new Set();
 
-    this.MAX_SPEED = MOVE.MAX_SPEED;
-    this.ACCEL = MOVE.ACCEL;
+    this.MAX_SPEED = MOVE.MAX_SPEED * 5;
+    this.ACCEL = MOVE.ACCEL * 5;
 
     // head bobbing state
     this.bobPhase = 0; // oscillation phase

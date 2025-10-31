@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as SkeletonUtilsModule from "three/examples/jsm/utils/SkeletonUtils.js";
+import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import { ENEMY, COMBAT } from "./constants.js";
 import { AVATAR_HEIGHT } from "./player-avatar.js";
 import { gridToWorld, worldToGrid } from "./utils.js";
@@ -13,9 +14,11 @@ export function initEnemies(
   wallGroup,
   walls,
   maze,
-  onPlayerDamage
+  onPlayerDamage,
+  gltfModel
 ) {
-  const SkeletonUtils = SkeletonUtilsModule.SkeletonUtils ?? SkeletonUtilsModule;
+  const SkeletonUtils =
+    SkeletonUtilsModule.SkeletonUtils ?? SkeletonUtilsModule;
   // ---- Tunables (safe defaults; override in constants.js if you want) ----
   const MIN_PLAYER_DIST = ENEMY.MIN_PLAYER_DIST ?? 0.9; // personal-space bubble (m)
   const BASE_RADIUS = ENEMY.RADIUS ?? 0.35; // enemy sphere radius (m)
@@ -24,6 +27,8 @@ export function initEnemies(
     MIN_PLAYER_DIST + 0.02
   );
   const VERTICAL_ATTACK_TOL = ENEMY.VERTICAL_ATTACK_TOLERANCE ?? 0.45; // how high off the ground before you're "airborne" for damage
+  const AVOID_DISTANCE = BASE_RADIUS + 0.5; // How far ahead to check for walls (m)
+  const AVOID_STRENGTH = 1.5; // How strongly to steer away (adjust as needed)
 
   // Auto-calibrate player's ground eye-height at first update (or whenever we see a lower eye Y)
   let eyeGroundBaselineY = null; // camera.y when on ground
@@ -52,6 +57,95 @@ export function initEnemies(
 
   function lower(str) {
     return (str ?? "").toLowerCase();
+  }
+
+  function setModelMaterial(model, callback) {
+    model.traverse((node) => {
+      if (node.isMesh && node.material) {
+        // Handle both single and multi-materials
+        if (Array.isArray(node.material)) {
+          node.material.forEach(callback);
+        } else {
+          callback(node.material);
+        }
+      }
+    });
+  } // Helper to cache original materials (for un-freezing)
+
+  function cacheOriginalMaterials(model) {
+    const cache = new Map();
+    setModelMaterial(model, (mat) => {
+      if (!cache.has(mat.uuid)) {
+        cache.set(mat.uuid, {
+          color: mat.color.clone(),
+          emissive: mat.emissive.clone(),
+        });
+      }
+    });
+    return cache;
+  }
+
+  // Calculates a steering vector to avoid nearby walls
+  function getWallAvoidanceVector(posX, posZ, moveDirX, moveDirZ) {
+    const feelerX = posX + moveDirX * AVOID_DISTANCE;
+    const feelerZ = posZ + moveDirZ * AVOID_DISTANCE;
+
+    let avoidanceX = 0;
+    let avoidanceZ = 0;
+    let wallsDetected = 0;
+
+    for (const w of walls) {
+      // Find closest point on wall AABB to the feeler point
+      const cx = Math.max(w.min.x, Math.min(feelerX, w.max.x));
+      const cz = Math.max(w.min.z, Math.min(feelerZ, w.max.z));
+
+      // Vector from closest point to feeler
+      const ddx = feelerX - cx;
+      const ddz = feelerZ - cz;
+      const distanceSq = ddx * ddx + ddz * ddz;
+
+      // Is the feeler point "inside" the wall's AABB (within radius)?
+      // We use a radius slightly smaller than BASE_RADIUS for the feeler
+      // to trigger avoidance before the enemy center actually hits.
+      const checkRadius = BASE_RADIUS * 0.8;
+      if (distanceSq < checkRadius * checkRadius) {
+        const distance = Math.sqrt(distanceSq) || 1e-5;
+
+        // Calculate push-out direction (normal approximation)
+        // This pushes directly away from the closest point on the wall AABB
+        const pushX = ddx / distance;
+        const pushZ = ddz / distance;
+
+        // Accumulate avoidance force, stronger if deeper penetration
+        const penetration = checkRadius - distance;
+        avoidanceX += pushX * penetration;
+        avoidanceZ += pushZ * penetration;
+        wallsDetected++;
+      }
+    }
+
+    if (wallsDetected > 0) {
+      // Normalize the combined avoidance vector
+      const avoidMag = Math.hypot(avoidanceX, avoidanceZ);
+      if (avoidMag > 1e-5) {
+        return { x: avoidanceX / avoidMag, z: avoidanceZ / avoidMag };
+      }
+    }
+
+    return null; // No avoidance needed
+  }
+
+  const _targetQuat = new THREE.Quaternion();
+  const _currentDir = new THREE.Vector3();
+  function rotateTowards(object, targetX, targetZ, dt) {
+    const speed = 8; // Rotation speed (adjust as needed) // Calculate target angle
+    const targetAngle = Math.atan2(
+      -(targetZ - object.position.z),
+      targetX - object.position.x
+    );
+    _targetQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), targetAngle); // Smoothly interpolate (slerp) towards the target quaternion
+
+    object.quaternion.slerp(_targetQuat, speed * dt);
   }
 
   const raycaster = new THREE.Raycaster();
@@ -176,11 +270,19 @@ export function initEnemies(
     if (enemy.dead) {
       enemy.ui.wrapper.style.display = "none";
       return;
-    }
+    } // --- FIX: Calculate anchor point above the model's head ---
 
-  enemyHead.copy(enemy.mesh.position);
-  const headOffset = enemy.headOffset ?? BASE_RADIUS * 2;
-  enemyHead.y += headOffset;
+    enemyHead.copy(enemy.mesh.position);
+
+    // Use modelTopOffset if available (from GLTF)
+    // Otherwise, use BASE_RADIUS (for sphere fallback, since sphere origin is its center)
+    const headOffset = enemy.modelTopOffset ?? BASE_RADIUS;
+
+    // Anchor the UI to the model's mesh position + its calculated top offset + a small buffer
+    enemyHead.y = enemy.mesh.position.y + headOffset + 0.1; // 0.1m buffer
+
+    // --- FIX: Add distance-based scaling ---
+    const distance = camera.position.distanceTo(enemyHead);
 
     tmpVec.copy(enemyHead).project(camera);
     const isBehind = tmpVec.z < 0 || tmpVec.z > 1;
@@ -191,13 +293,23 @@ export function initEnemies(
 
     const rawScreenX = (tmpVec.x * 0.5 + 0.5) * window.innerWidth;
     const rawScreenY = (-tmpVec.y * 0.5 + 0.5) * window.innerHeight;
+
+    // Clamp scale between a min and max size
+    const refDistance = 5.0; // At 5 meters, scale is 1
+    const minScale = 0.4;
+    const maxScale = 1.2;
+    let scale = refDistance / Math.max(distance, 0.1);
+    scale = Math.max(minScale, Math.min(scale, maxScale));
+
     const onScreen =
       rawScreenX >= -40 &&
       rawScreenX <= window.innerWidth + 40 &&
       rawScreenY >= 0 &&
       rawScreenY <= window.innerHeight + 40;
+
+    // --- FIX: Use raw screen coords, not fixed pixel offset ---
     const screenX = rawScreenX;
-    const screenY = rawScreenY - 36;
+    const screenY = rawScreenY; // Remove the old "- 36"
     if (!onScreen) {
       enemy.ui.wrapper.style.display = "none";
       return;
@@ -221,6 +333,12 @@ export function initEnemies(
     enemy.ui.wrapper.style.display = "block";
     enemy.ui.wrapper.style.left = `${screenX}px`;
     enemy.ui.wrapper.style.top = `${screenY}px`;
+
+    // --- FIX: Apply scale and positioning transforms ---
+    // translate(-50%, -100%) anchors the bar's BOTTOM-CENTER to the screenX/Y point
+    enemy.ui.wrapper.style.transform = `translate(-50%, -100%) scale(${scale})`;
+    // transformOrigin ensures it scales *from* that bottom-center anchor point
+    enemy.ui.wrapper.style.transformOrigin = "50% 100%";
   }
 
   function removeEnemyUi(enemy) {
@@ -314,7 +432,7 @@ export function initEnemies(
         for (const e of enemies) {
           const de = Math.hypot(
             w.x - e.mesh.position.x,
-            w.z - e.mesh.position.z
+            w.z - e.mesh.position.z,
           );
           if (de < ENEMY.SEPARATION_DIST) {
             ok = false;
@@ -328,18 +446,68 @@ export function initEnemies(
     return options[Math.floor(Math.random() * options.length)];
   }
 
+  // spawnEnemy: use ENEMY_MODEL (note name) and scale consistently
   function spawnEnemy() {
     let cell = null;
     for (let i = 0; i < ENEMY.MAX_SPAWN_TRIES && !cell; i++)
       cell = chooseSpawnCell();
     if (!cell) return false;
-    const w = gridToWorld(cell.x, cell.y);
-    const mesh = new THREE.Mesh(enemyGeo, baseMat.clone());
-    mesh.castShadow = true;
-    mesh.position.set(w.x, BASE_RADIUS, w.z);
+
+    const w = gridToWorld(cell.x, cell.y); // --- MODIFIED: Use GLB model if available, otherwise fallback to sphere ---
+
+    let mesh;
+    let materialCache = null; // For this specific clone
+    let modelTopOffset = null;
+
+    if (gltfModel) {
+      // Use SkeletonUtils.clone for animated/complex models
+      mesh = SkeletonUtils.clone(gltfModel); // Cache this clone's original materials for un-freezing
+      materialCache = cacheOriginalMaterials(mesh); // Auto-scale the model to match the BASE_RADIUS // We'll scale it so its *largest dimension* matches the sphere's *diameter*
+
+      const box = new THREE.Box3().setFromObject(mesh);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+
+      const targetDiameter = BASE_RADIUS * 1.35; // Ensure maxDim is not zero to avoid division by zero
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const scale = maxDim > 1e-5 ? targetDiameter / maxDim : 1;
+      mesh.scale.setScalar(scale);
+
+      // --- FIX: Recalculate box AFTER scaling to get correct bounds ---
+      box.setFromObject(mesh);
+      modelTopOffset = box.max.y; // Y-coord of the top, relative to mesh origin // Define the offset from the model's origin (0,0,0) down to its visual base/feet.
+
+      // Define the offset from the model's origin (0,0,0) down to its visual base/feet.
+      // YOU MUST ADJUST THIS VALUE FOR YOUR MODEL!
+      // Negative value means origin is ABOVE the base.
+      const originToBaseOffset = 0; // <-- !!! EXAMPLE VALUE - TUNE THIS !!!
+
+      // Calculate posY to place the *base* near Y=0, accounting for the scale
+      // (originToBaseOffset * scale) = world distance from scaled origin to the base
+      const posY = -(originToBaseOffset * scale);
+
+      const hoverOffset = 0.67
+
+      mesh.position.set(w.x, posY+ hoverOffset, w.z);
+
+      // Enable shadows for all sub-meshes
+
+      mesh.traverse((node) => {
+        if (node.isMesh) {
+          node.castShadow = true;
+        }
+      });
+    } else {
+      // Fallback to the sphere if the model didn't load
+      mesh = new THREE.Mesh(enemyGeo, baseMat.clone());
+      mesh.castShadow = true;
+      mesh.position.set(w.x, BASE_RADIUS, w.z);
+    }
+
     scene.add(mesh);
 
     const ui = createEnemyHealthUi();
+
     const enemyObj = {
       mesh,
       gx: cell.x,
@@ -361,10 +529,13 @@ export function initEnemies(
       ramHasHit: false,
       ramSide: Math.random() < 0.5 ? 1 : -1,
       ui,
+      materialCache: materialCache,
+      modelTopOffset: modelTopOffset 
     };
 
     enemies.push(enemyObj);
     applyHealthDelta(enemyObj, 0);
+
     return true;
   }
 
@@ -387,22 +558,37 @@ export function initEnemies(
 
   function slideOutOfWalls(nx, nz) {
     // pushes the point (nx, nz) out of AABBs and returns the corrected position
+    const epsilon = 0.001; // Small buffer to prevent getting stuck
     for (const w of walls) {
+      // Find closest point on wall AABB to the enemy center
       const cx = Math.max(w.min.x, Math.min(nx, w.max.x));
       const cz = Math.max(w.min.z, Math.min(nz, w.max.z));
-      const ddx = nx - cx,
-        ddz = nz - cz;
-      const d2 = ddx * ddx + ddz * ddz;
-      if (d2 < ENEMY.RADIUS * ENEMY.RADIUS) {
-        const d = Math.sqrt(d2) || 1e-5;
-        const overlap = ENEMY.RADIUS - d;
-        nx += (ddx / d) * overlap;
-        nz += (ddz / d) * overlap;
+
+      // Vector from closest point to enemy center
+      const ddx = nx - cx;
+      const ddz = nz - cz;
+
+      const distanceSq = ddx * ddx + ddz * ddz;
+      const radiusSq = BASE_RADIUS * BASE_RADIUS;
+
+      // Check for penetration
+      if (distanceSq < radiusSq) {
+        const distance = Math.sqrt(distanceSq) || 1e-5; // Avoid division by zero
+        // Calculate how much we need to push out
+        const penetrationDepth = BASE_RADIUS - distance;
+        const pushOutDistance = penetrationDepth + epsilon; // Add the buffer
+
+        // Normalized direction vector for pushing out
+        const pushX = ddx / distance;
+        const pushZ = ddz / distance;
+
+        // Apply the push
+        nx += pushX * pushOutDistance;
+        nz += pushZ * pushOutDistance;
       }
     }
     return { nx, nz };
   }
-
   // ---------------- Steering / Collision helpers ----------------
   function keepDistanceFromPlayer(pos) {
     const dx = pos.x - camera.position.x;
@@ -418,6 +604,7 @@ export function initEnemies(
   function resolveEnemyOverlaps() {
     const minDist = BASE_RADIUS * 2;
     const minDist2 = minDist * minDist;
+
     for (let iter = 0; iter < ENEMY.SEPARATION_ITERATIONS; iter++) {
       // enemy-enemy
       for (let i = 0; i < enemies.length; i++) {
@@ -497,23 +684,25 @@ export function initEnemies(
   // ---------------- Status: freeze ----------------
   function setFrozen(isFrozen) {
     frozen = isFrozen;
+
     for (const e of enemies) {
-      const applyToMesh = (mesh) => {
-        if (!mesh) return;
-        const applyMaterial = (mat) => {
-          if (!mat) return;
-          if (mat.color) mat.color.set(isFrozen ? 0xcccccc : 0xff5252);
-          if (mat.emissive) mat.emissive.set(isFrozen ? 0x555555 : 0x550000);
-        };
-        if (mesh.traverse) {
-          mesh.traverse((n) => {
-            if (n.isMesh) applyMaterial(n.material);
-          });
-        } else if (mesh.material) {
-          applyMaterial(mesh.material);
+      setModelMaterial(e.mesh, (mat) => {
+        if (isFrozen) {
+          mat.color.set(0xcccccc);
+          mat.emissive.set(0x555555);
+        } else {
+          // Restore from cache if it exists, otherwise use defaults
+          const original = e.materialCache?.get(mat.uuid);
+          if (original) {
+            mat.color.copy(original.color);
+            mat.emissive.copy(original.emissive);
+          } else {
+            // Fallback for sphere
+            mat.color.set(0xff5252);
+            mat.emissive.set(0x550000);
+          }
         }
-      };
-      applyToMesh(e.mesh);
+      });
     }
   }
 
@@ -543,14 +732,17 @@ export function initEnemies(
           continue;
         }
         e.hitFlash = Math.max(0, e.hitFlash - dt);
-        if (e.mesh?.material?.emissive) {
-          e.mesh.material.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
-        }
+        setModelMaterial(e.mesh, (mat) => {
+          if (mat.emissiveIntensity !== undefined) {
+            mat.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
+          }
+        });
       }
       for (let i = enemies.length - 1; i >= 0; i--) {
         const enemy = enemies[i];
         if (!enemy.dead) continue;
-        if (typeof enemy.deathTimer === "number" && enemy.deathTimer > 0) continue;
+        if (typeof enemy.deathTimer === "number" && enemy.deathTimer > 0)
+          continue;
         scene.remove(enemy.mesh);
         removeEnemyUi(enemy);
         enemies.splice(i, 1);
@@ -597,86 +789,75 @@ export function initEnemies(
         continue;
       }
 
-      // decay hit flash and push emissive pulse to materials
+      const prevX = e.mesh.position.x;
+      const prevZ = e.mesh.position.z;
+
+      // --- Calculate desired movement direction (dx, dz) based on state ---
+      let desiredDx = 0;
+      let desiredDz = 0;
+      let moveSpeed = ENEMY.SPEED; // Default speed
+      let targetX = prevX,
+        targetZ = prevZ; // For rotation // --- Decay hit flash ---
+
       e.hitFlash = Math.max(0, e.hitFlash - dt);
-      if (e.mesh && e.mesh.traverse) {
-        e.mesh.traverse((n) => {
-          if (n.isMesh && n.material?.emissive) {
-            n.material.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
-          }
-        });
-      } else if (e.mesh?.material?.emissive) {
-        e.mesh.material.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
-      }
+      setModelMaterial(e.mesh, (mat) => {
+        if (mat.emissiveIntensity !== undefined) {
+          mat.emissiveIntensity = 0.2 + e.hitFlash * 1.0;
+        }
+      }); // --- Sync grid pos ---
 
-      const here = worldToGrid(e.mesh.position.x, e.mesh.position.z);
+      const here = worldToGrid(prevX, prevZ); // Use prevX/Z for consistency within frame
       e.gx = here.gx;
-      e.gy = here.gy;
+      e.gy = here.gy; // --- Calculate player direction ---
 
-      // Direction to player (XZ)
-      let tdx = camera.position.x - e.mesh.position.x;
-      let tdz = camera.position.z - e.mesh.position.z;
+      let tdx = camera.position.x - prevX;
+      let tdz = camera.position.z - prevZ;
       const tpDist = Math.hypot(tdx, tdz);
       const ux = tpDist > 1e-6 ? tdx / tpDist : 0;
-      const uz = tpDist > 1e-6 ? tdz / tpDist : 0;
+      const uz = tpDist > 1e-6 ? tdz / tpDist : 0; // --- Check for Ram initiation ---
 
-      // ---------------- RAM FSM ----------------
       if (e.ramState === "chase" && tpDist <= RAM.TRIGGER_DIST) {
-        // Start the loop
         e.ramHasHit = false;
         enterRam(e, "windup", RAM.WINDUP_TIME, ux, uz);
+        // Ensure state change happens before movement calculation for this frame
+        e.ramState = "windup"; // Explicitly set state here
       }
 
+      // --- Determine desired direction based on state ---
       if (e.ramState !== "chase") {
-        // Handle windup/charge/backoff/cooldown
+        // --- Ram State ---
+        moveSpeed = 0; // Ram states set their own speed magnitude
+
         if (e.ramState === "windup") {
-          // slight backstep to telegraph
-          const bx = -e.ramDir.x * RAM.BACKOFF_SPEED * 0.5 * dt;
-          const bz = -e.ramDir.z * RAM.BACKOFF_SPEED * 0.5 * dt;
-          let nx = e.mesh.position.x + bx;
-          let nz = e.mesh.position.z + bz;
-          ({ nx, nz } = slideOutOfWalls(nx, nz));
-          e.mesh.position.x = nx;
-          e.mesh.position.z = nz;
+          desiredDx = -e.ramDir.x; // Move slightly backward
+          desiredDz = -e.ramDir.z;
+          moveSpeed = RAM.BACKOFF_SPEED * 0.5;
+          targetX = camera.position.x; // Look at player
+          targetZ = camera.position.z;
 
           e.ramT -= dt;
           if (e.ramT <= 0) {
             e.ramHasHit = false;
-            enterRam(e, "charge", RAM.CHARGE_TIME, ux, uz);
-            // try {
-            //   audio.play?.("enemy_charge", { volume: 0.6 });
-            // } catch {}
+            enterRam(e, "charge", RAM.CHARGE_TIME, ux, uz); // Prepare for next state
+            // Don't change state *during* movement calculation
           }
         } else if (e.ramState === "charge") {
-          const sx = e.ramDir.x * RAM.CHARGE_SPEED * dt;
-          const sz = e.ramDir.z * RAM.CHARGE_SPEED * dt;
-          let nx = e.mesh.position.x + sx;
-          let nz = e.mesh.position.z + sz;
-          ({ nx, nz } = slideOutOfWalls(nx, nz));
-          e.mesh.position.x = nx;
-          e.mesh.position.z = nz;
+          desiredDx = e.ramDir.x; // Move forward
+          desiredDz = e.ramDir.z;
+          moveSpeed = RAM.CHARGE_SPEED;
+          targetX = prevX + desiredDx; // Look in charge direction
+          targetZ = prevZ + desiredDz;
 
-          // check hit once during charge
+          // Check hit (keep existing logic)
           if (!e.ramHasHit && canDealDamage && canHitByHeight) {
-            const pdx = camera.position.x - e.mesh.position.x;
-            const pdz = camera.position.z - e.mesh.position.z;
+            const pdx = camera.position.x - prevX; // Use prevX for consistency
+            const pdz = camera.position.z - prevZ;
             if (Math.hypot(pdx, pdz) <= RAM.HIT_RADIUS) {
               onPlayerDamage(RAM.DAMAGE);
               e.ramHasHit = true;
-              // a tiny squash/pulse
-              if (e.baseScale && e.mesh) {
-                e.mesh.scale.copy(e.baseScale).multiplyScalar(1.15);
-                setTimeout(() => {
-                  if (e.mesh && e.baseScale) {
-                    e.mesh.scale.copy(e.baseScale);
-                  }
-                }, 90);
-              }
               try {
                 audio.play?.("player_damage", { volume: 0.9 });
-              } catch (e) {
-                console.log("Failed to play player_damage sound:", e);
-              }
+              } catch (err) {}
             }
           }
 
@@ -685,47 +866,90 @@ export function initEnemies(
             enterRam(e, "backoff", RAM.BACKOFF_TIME, e.ramDir.x, e.ramDir.z);
           }
         } else if (e.ramState === "backoff") {
-          const bx = -e.ramDir.x * RAM.BACKOFF_SPEED * dt;
-          const bz = -e.ramDir.z * RAM.BACKOFF_SPEED * dt;
-          let nx = e.mesh.position.x + bx;
-          let nz = e.mesh.position.z + bz;
-          ({ nx, nz } = slideOutOfWalls(nx, nz));
-          e.mesh.position.x = nx;
-          e.mesh.position.z = nz;
+          desiredDx = -e.ramDir.x; // Move backward
+          desiredDz = -e.ramDir.z;
+          moveSpeed = RAM.BACKOFF_SPEED;
+          targetX = camera.position.x; // Look at player
+          targetZ = camera.position.z;
 
           e.ramT -= dt;
           if (e.ramT <= 0) {
             enterRam(e, "cooldown", RAM.COOLDOWN_TIME);
           }
         } else if (e.ramState === "cooldown") {
-          // hold position (or do subtle drift toward the player)
-          const drift = Math.min(tpDist, 0.3); // tiny drift if we're too far
-          let nx = e.mesh.position.x + ux * drift * 0.25 * dt;
-          let nz = e.mesh.position.z + uz * drift * 0.25 * dt;
-          ({ nx, nz } = slideOutOfWalls(nx, nz));
-          e.mesh.position.x = nx;
-          e.mesh.position.z = nz;
+          // Drift slightly towards player
+          const drift = Math.min(tpDist, 0.3);
+          desiredDx = ux;
+          desiredDz = uz;
+          moveSpeed = drift * 0.25; // Slow drift
+          targetX = camera.position.x; // Look at player
+          targetZ = camera.position.z;
 
           e.ramT -= dt;
           if (e.ramT <= 0) {
             if (tpDist <= RAM.TRIGGER_DIST * 1.1) {
-              // loop again
               e.ramHasHit = false;
-              enterRam(e, "windup", RAM.WINDUP_TIME, ux, uz);
+              enterRam(e, "windup", RAM.WINDUP_TIME, ux, uz); // Loop ram
             } else {
-              // return to chase
-              e.ramState = "chase";
+              e.ramState = "chase"; // Return to chase
             }
           }
         }
+      } else if (e.path && e.path.length > 0 && e.targetIndex < e.path.length) {
+        // --- Path Following State ---
+        const targetCell = e.path[e.targetIndex]; // Use targetIndex directly
+        const tw = gridToWorld(targetCell.gx, targetCell.gy);
+        targetX = tw.x; // Target for movement & rotation
+        targetZ = tw.z;
 
-        // skip chase/path movement while ramming
-        continue;
-      }
+        let dirToTargetX = targetX - prevX;
+        let dirToTargetZ = targetZ - prevZ;
+        const distToTarget = Math.hypot(dirToTargetX, dirToTargetZ);
+        const moveDist = ENEMY.SPEED * dt;
 
-      // ---------------- Normal chase/wander (when not ramming) ----------------
-      if (!e.path || e.path.length === 0) {
-        // wander
+        if (distToTarget <= moveDist || distToTarget < 0.02) {
+          // Adjusted threshold
+          // Reached (or very close to) waypoint
+          e.mesh.position.x = targetX; // Snap position
+          e.mesh.position.z = targetZ;
+          e.gx = targetCell.gx;
+          e.gy = targetCell.gy;
+          e.targetIndex++; // Advance path index
+
+          // If there's a next waypoint, set direction towards it for *this frame*
+          if (e.targetIndex < e.path.length) {
+            const nextTargetCell = e.path[e.targetIndex];
+            const nextTw = gridToWorld(nextTargetCell.gx, nextTargetCell.gy);
+            desiredDx = nextTw.x - targetX; // Use snapped position as origin
+            desiredDz = nextTw.z - targetZ;
+            targetX = nextTw.x; // Update rotation target for next frame's look
+            targetZ = nextTw.z;
+          } else {
+            desiredDx = 0; // Reached end of path
+            desiredDz = 0;
+            e.path = []; // Clear path
+          }
+          // Set moveSpeed based on remaining distance in this frame if snapped
+          moveSpeed = moveDist - distToTarget > 0 ? ENEMY.SPEED : 0; // Use remaining fraction of speed or stop
+          // Re-normalize direction if moving further this frame
+          const nextMag = Math.hypot(desiredDx, desiredDz);
+          if (moveSpeed > 0 && nextMag > 1e-5) {
+            desiredDx /= nextMag;
+            desiredDz /= nextMag;
+          } else {
+            desiredDx = 0;
+            desiredDz = 0;
+            moveSpeed = 0;
+          }
+        } else {
+          // Move towards current waypoint
+          desiredDx = dirToTargetX;
+          desiredDz = dirToTargetZ;
+          moveSpeed = ENEMY.SPEED; // Full speed towards current target
+        }
+      } else {
+        // --- Wander State ---
+        e.path = []; // Clear path if invalid
         e.wanderTimer = (e.wanderTimer || 0) + dt;
         if (e.wanderTimer >= (e.wanderChangeInterval || 0)) {
           const a = Math.random() * Math.PI * 2;
@@ -734,58 +958,147 @@ export function initEnemies(
           e.wanderChangeInterval = 1 + Math.random() * 2;
           e.wanderTimer = 0;
         }
-        let nx = e.mesh.position.x + (e.vx || 0) * dt;
-        let nz = e.mesh.position.z + (e.vz || 0) * dt;
-        ({ nx, nz } = slideOutOfWalls(nx, nz));
-        e.mesh.position.set(nx, e.mesh.position.y, nz);
-        keepDistanceFromPlayer(e.mesh.position); // enforce personal space
-        if (e.mixer) {
-          const speed = Math.hypot(e.vx || 0, e.vz || 0);
-          playEnemyState(e, speed > 0.05 ? "walk" : "idle");
+
+        desiredDx = e.vx || 0;
+        desiredDz = e.vz || 0;
+        moveSpeed = 1.0; // Wander uses vx, vz directly scaled by dt later
+
+        targetX = prevX + desiredDx; // Target for rotation
+        targetZ = prevZ + desiredDz;
+      }
+
+      // --- Normalize desired direction (unless it's zero or wander) ---
+      // Wander direction already incorporates speed
+      if (e.ramState !== "chase" || (e.path && e.path.length > 0)) {
+        const desiredMag = Math.hypot(desiredDx, desiredDz);
+        if (desiredMag > 1e-5) {
+          desiredDx /= desiredMag;
+          desiredDz /= desiredMag;
+        } else {
+          // If not moving and not wander, ensure speed is 0
+          if (e.ramState === "chase" && (!e.path || e.path.length === 0)) {
+            // only zero out speed if not wandering
+          } else {
+            moveSpeed = 0;
+          }
         }
-        continue;
       }
 
-      const targetCell = e.path[Math.min(e.targetIndex, e.path.length - 1)];
-      const tw = gridToWorld(targetCell.gx, targetCell.gy);
-      let dx = tw.x - e.mesh.position.x,
-        dz = tw.z - e.mesh.position.z;
-      const dist = Math.hypot(dx, dz);
+      // --- Calculate Wall Avoidance ---
+      let finalDx = desiredDx;
+      let finalDz = desiredDz;
+      if (
+        moveSpeed > 0 ||
+        (e.ramState === "chase" && (!e.path || e.path.length === 0))
+      ) {
+        // Avoid if moving or wandering
+        // Use current velocity for wander, desired direction otherwise
+        const checkDx =
+          e.ramState === "chase" && (!e.path || e.path.length === 0)
+            ? e.vx || 0
+            : desiredDx;
+        const checkDz =
+          e.ramState === "chase" && (!e.path || e.path.length === 0)
+            ? e.vz || 0
+            : desiredDz;
+        const checkMag = Math.hypot(checkDx, checkDz);
 
-      if (dist > e.lastWaypointDist - 0.001) e.noProgressTime += dt;
-      else e.noProgressTime = 0;
-      e.lastWaypointDist = dist;
-
-      if (e.noProgressTime > 0.6) {
-        forceReplanForEnemy(e, pg);
-        continue;
+        if (checkMag > 1e-5) {
+          // Only check if there's a direction
+          const avoidance = getWallAvoidanceVector(
+            prevX,
+            prevZ,
+            checkDx / checkMag,
+            checkDz / checkMag
+          );
+          if (avoidance) {
+            // Combine direction with avoidance
+            finalDx = checkDx / checkMag + avoidance.x * AVOID_STRENGTH;
+            finalDz = checkDz / checkMag + avoidance.z * AVOID_STRENGTH;
+            const finalMag = Math.hypot(finalDx, finalDz);
+            if (finalMag > 1e-5) {
+              finalDx /= finalMag;
+              finalDz /= finalMag;
+              // Adjust rotation target slightly towards avoidance direction
+              targetX = prevX + finalDx;
+              targetZ = prevZ + finalDz;
+            } else {
+              // Avoidance cancelled out movement, stop
+              finalDx = 0;
+              finalDz = 0;
+              moveSpeed = 0;
+            }
+          } else {
+            // No avoidance needed, use original desired/wander direction
+            finalDx = checkDx / checkMag;
+            finalDz = checkDz / checkMag;
+          }
+        } else {
+          finalDx = 0;
+          finalDz = 0;
+          moveSpeed = 0;
+        }
+      } else {
+        finalDx = 0;
+        finalDz = 0;
+        moveSpeed = 0;
       }
 
-      if (dist < 0.02) {
-        e.mesh.position.set(tw.x, e.mesh.position.y, tw.z);
-        e.gx = targetCell.gx;
-        e.gy = targetCell.gy;
-        e.lastWaypointDist = Infinity;
-        e.noProgressTime = 0;
-        if (e.targetIndex < e.path.length - 1) e.targetIndex++;
-        if (e.mixer) playEnemyState(e, "idle");
-        continue;
-      }
+      // --- Calculate final position delta ---
+      // Wander speed is handled differently
+      const moveAmount =
+        e.ramState === "chase" && (!e.path || e.path.length === 0)
+          ? 1.0
+          : moveSpeed * dt;
+      let nx =
+        prevX +
+        finalDx *
+          moveAmount *
+          (e.ramState === "chase" && (!e.path || e.path.length === 0)
+            ? dt
+            : 1.0); // Apply dt for wander here
+      let nz =
+        prevZ +
+        finalDz *
+          moveAmount *
+          (e.ramState === "chase" && (!e.path || e.path.length === 0)
+            ? dt
+            : 1.0);
 
-      dx /= dist || 1;
-      dz /= dist || 1;
-      let nx = e.mesh.position.x + dx * ENEMY.SPEED * dt;
-      let nz = e.mesh.position.z + dz * ENEMY.SPEED * dt;
       ({ nx, nz } = slideOutOfWalls(nx, nz));
-      e.mesh.position.x = nx;
-      e.mesh.position.z = nz;
+      e.mesh.position.set(nx, e.mesh.position.y, nz);
       keepDistanceFromPlayer(e.mesh.position); // enforce personal space
-      if (e.mixer) playEnemyState(e, "walk");
+      if (e.mixer) {
+        const speed = Math.hypot(e.vx || 0, e.vz || 0);
+        playEnemyState(e, speed > 0.05 ? "walk" : "idle");
+      }
+      // --- Apply Rotation ---
+      // Rotate if intending to move OR during non-chase ram phases
+      if (
+        moveSpeed > 0.01 ||
+        (Math.abs(e.vx) + Math.abs(e.vz) > 0.01 &&
+          (!e.path || e.path.length === 0)) ||
+        e.ramState !== "chase"
+      ) {
+        rotateTowards(e.mesh, targetX, targetZ, dt);
+      }
     }
 
-    // separation
+    // --- End of primary movement loop ---
     resolveEnemyOverlaps();
     for (const e of enemies) updateEnemyHealthUi(e);
+
+    for (const e of enemies) {
+      if (e.dead) continue;
+      keepDistanceFromPlayer(e.mesh.position); // Apply player separation
+    }
+
+    for (const e of enemies) {
+      if (e.dead) continue;
+      const { nx, nz } = slideOutOfWalls(e.mesh.position.x, e.mesh.position.z);
+      e.mesh.position.x = nx;
+      e.mesh.position.z = nz;
+    }
 
     // DAMAGE: must be close horizontally AND not airborne (by calibrated offset)
     if (canDealDamage && canHitByHeight) {
@@ -804,7 +1117,8 @@ export function initEnemies(
     for (let i = enemies.length - 1; i >= 0; i--) {
       const enemy = enemies[i];
       if (!enemy.dead) continue;
-      if (typeof enemy.deathTimer === "number" && enemy.deathTimer > 0) continue;
+      if (typeof enemy.deathTimer === "number" && enemy.deathTimer > 0)
+        continue;
       scene.remove(enemy.mesh);
       removeEnemyUi(enemy);
       enemies.splice(i, 1);
@@ -821,8 +1135,8 @@ export function initEnemies(
     raycaster.setFromCamera(ndcCenter, camera);
     raycaster.far = COMBAT.RAYCAST_MAX;
 
-  const aliveMeshes = enemies.filter((e) => !e.dead).map((e) => e.mesh);
-  const hitsEnemies = raycaster.intersectObjects(aliveMeshes, true);
+    const aliveMeshes = enemies.filter((e) => !e.dead).map((e) => e.mesh);
+    const hitsEnemies = raycaster.intersectObjects(aliveMeshes, true);
     const blockingGroup = overrideWallGroup ?? wallGroup;
     const hitsWalls = blockingGroup
       ? raycaster.intersectObjects([blockingGroup], true)
@@ -831,12 +1145,21 @@ export function initEnemies(
     const hit = hitsEnemies.find((h) => h.distance < wallDist);
     if (!hit) return;
 
+    // find which enemy owns the object that was hit
+    const hitObj = hit.object;
     // If the hit object is a child mesh of a templated model, it should have
     // a back-reference to its enemy object in userData.enemy. Otherwise,
     // fall back to matching by root mesh equality for the sphere fallback.
     const enemy =
       hit.object.userData?.enemy ||
-      enemies.find((candidate) => candidate.mesh === hit.object);
+      enemies.find((candidate) => {
+        if (candidate.mesh === hitObj) return true;
+        // check if this enemy group contains the hit object
+        return (
+          candidate.mesh.getObjectById &&
+          candidate.mesh.getObjectById(hitObj.id) !== undefined
+        );
+      });
     if (!enemy) return;
 
     const wasAlive = !enemy.dead;

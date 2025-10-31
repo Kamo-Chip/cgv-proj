@@ -13,6 +13,22 @@ export function createHUD() {
   const compassArrow = compassHint?.querySelector(".compass-arrow");
   const compassDistance = document.getElementById("compassDistance");
   const compassTimer = document.getElementById("compassTimer");
+  
+  // Level display (injected into the HUD)
+  const hudContainer = document.querySelector(".hud");
+  let levelDisplay = document.getElementById("levelDisplay");
+  if (!levelDisplay && hudContainer) {
+    levelDisplay = document.createElement("div");
+    levelDisplay.id = "levelDisplay";
+    Object.assign(levelDisplay.style, {
+      fontSize: "13px",
+      fontWeight: "700",
+      marginBottom: "6px",
+      opacity: "0.95",
+    });
+    // insert at top of HUD
+    hudContainer.insertBefore(levelDisplay, hudContainer.firstChild);
+  }
 
   // ---------------------------------------
   // Settings Button (top-right)
@@ -138,6 +154,13 @@ export function createHUD() {
     if (keysCount) keysCount.textContent = collected;
     if (keysTotal) keysTotal.textContent = total;
   }
+
+  function updateLevel(level = 1, name = "") {
+    if (!levelDisplay) return;
+    const nm = name ? ` — ${name}` : "";
+    levelDisplay.textContent = `Level ${level}${nm}`;
+  }
+  
 
   // ---------------------------------------
   // COOL WEAPON HUD (bottom-right)
@@ -418,7 +441,8 @@ export function createHUD() {
     settingsBtn,
     showStart, showWin, hideWin, showLose, hideLose,
     updateHealth, updateKeys,
-    updateWeapon,
+  updateWeapon,
+  updateLevel,
     showSettings,
     onMasterVol, onSfxVol, onMusicVol, onToggleAudio, onCloseSettings,
     triggerDamageFlash,

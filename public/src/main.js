@@ -1,8 +1,9 @@
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import { audio } from "./audio.js";
-import { MAZE, POWERUP } from "./constants.js";
+import { MAZE, POWERUP, LEVELS, applyLevelPreset } from "./constants.js";
 import { createLookControls } from "./controls.js";
-import { initEnemies } from "./enemies.js";
 import {
   buildKeys,
   buildWalls,
@@ -18,6 +19,7 @@ import { createHUD } from "./ui.js";
 import { gridToWorld } from "./utils.js";
 import { initWeapons } from "./weapons.js";
 import { createPlayerAvatar, AVATAR_HEIGHT } from "./player-avatar.js";
+import { initEnemies } from "./enemies.js";
 
 const { scene, renderer, camera } = createScene();
 const hud = createHUD();
@@ -32,7 +34,9 @@ const cameraShake = createCameraShake(camera);
 import { createThirdPersonCamera } from "./controls.js";
 
 // Player model (stylized skin-compatible avatar for third-person view)
-const playerModel = createPlayerAvatar({ skinUrl: "https://minotar.net/skin/D_Luc" });
+const playerModel = createPlayerAvatar({
+  skinUrl: "https://minotar.net/skin/D_Luc",
+});
 scene.add(playerModel);
 playerModel.visible = false;
 
@@ -49,8 +53,15 @@ thirdPersonCam = createThirdPersonCamera(camera, playerPositionForCam);
 
 let activeIntro = null;
 let introFinished = false;
-let menuMusicSource = null;
-let gameplayMusicSource = null;
+
+// Level progression state (1-indexed)
+let currentLevel = 1;
+const MAX_LEVEL = Math.max(1, (LEVELS && LEVELS.length) || 1);
+
+// Apply initial level preset (mutates exported const objects in-place)
+applyLevelPreset(currentLevel);
+// Update HUD level display (if available)
+hud.updateLevel?.(currentLevel, LEVELS[currentLevel - 1]?.name);
 
 // Initialize audio (do not resume automatically; wait for user gesture)
 // We'll load sounds but not start the AudioContext until user interaction.
@@ -75,10 +86,9 @@ let gameplayMusicSource = null;
       player_jump_high: "./sounds/player_jump_high.wav",
       player_step_1: "./sounds/player_step_1.wav",
       player_step_2: "./sounds/player_step_2.wav",
-      intro_cinematic: "./sounds/opening intro - sound effect _ ( no copyright ) free royalty _ for videos.mp3",
-      button_click: "./sounds/buttonclick.mp3",
-      menu_background: "./sounds/menubackground.mp3",
-      gameplay_background: "./sounds/gameplaybackground.mp3",
+      intro_cinematic:
+        "./sounds/Cinematic Whoosh - Sound Effect (Final Cut).mp3",
+      metal_hit: "./sounds/metal_hit.wav",
     });
   } catch (e) {
     console.warn("Audio load failed (ok for dev):", e);
@@ -96,10 +106,7 @@ if (hud.onCloseSettings) {
     if (reopenMenuOnSettingsClose) {
       reopenMenuOnSettingsClose = false;
       if (!document.pointerLockElement && !won && !lost) {
-        try {
-          audio.play("button_click", { volume: 0.6 });
-        } catch (e) {}
-        openMenuOverlay();
+        openMenuOverlay({ focusResume: introFinished });
       }
     }
   });
@@ -169,26 +176,18 @@ function stopMenuGridAnim() {
 }
 
 function setResumeButtonVisible(visible) {
-  if (resumeBtn) {
-    resumeBtn.disabled = !visible;
-  }
-}
-
-function canResumeGameplay() {
-  return introFinished || !!activeIntro;
-}
-
-function setHudActive(active) {
-  const body = document.body;
-  if (!body) return;
-  body.classList.toggle("hud-active", !!active);
+  if (!resumeBtn) return;
+  resumeBtn.style.display = visible ? "block" : "none";
+  resumeBtn.disabled = !visible;
 }
 
 let reopenMenuOnSettingsClose = false;
 
-function openMenuOverlay({ allowResume = canResumeGameplay(), focusResume = allowResume } = {}) {
+function openMenuOverlay({
+  allowResume = introFinished,
+  focusResume = false,
+} = {}) {
   if (!menuOverlay) return;
-  setHudActive(false);
   setResumeButtonVisible(allowResume);
   menuOverlay.classList.remove("menu-hidden");
   startMenuGridAnim();
@@ -196,20 +195,6 @@ function openMenuOverlay({ allowResume = canResumeGameplay(), focusResume = allo
   hud.showSettings?.(false);
   if (allowResume && focusResume) {
     requestAnimationFrame(() => resumeBtn?.focus());
-  }
-  // Start menu music
-  if (gameplayMusicSource) {
-    try {
-      gameplayMusicSource.stop();
-    } catch (e) {}
-    gameplayMusicSource = null;
-  }
-  if (!menuMusicSource) {
-    try {
-      menuMusicSource = audio.play("menu_background", { volume: 0.4, loop: true, isMusic: true });
-    } catch (e) {
-      console.warn("Failed to play menu music:", e);
-    }
   }
 }
 
@@ -219,17 +204,6 @@ function closeMenuOverlay() {
   menuOverlay.classList.add("menu-hidden");
   stopMenuGridAnim();
   setResumeButtonVisible(false);
-  // Stop menu music
-  if (menuMusicSource) {
-    try {
-      menuMusicSource.stop();
-    } catch (e) {}
-    menuMusicSource = null;
-  }
-  // Button click sound
-  try {
-    audio.play("button_click", { volume: 0.6 });
-  } catch (e) {}
 }
 
 if (menuOverlay && !menuOverlay.classList.contains("menu-hidden")) {
@@ -241,16 +215,10 @@ if (initiateBtn) {
   initiateBtn.addEventListener("click", async () => {
     if (initiateBtn.disabled) return;
     initiateBtn.disabled = true;
-    try {
-      audio.play("button_click", { volume: 0.7 });
-    } catch (e) {}
     closeMenuOverlay();
+    lockPointer();
     try {
-      await playIntroSequence();
-      // Start gameplay music after intro
-      if (!gameplayMusicSource) {
-        gameplayMusicSource = audio.play("gameplay_background", { volume: 0.35, loop: true, isMusic: true });
-      }
+      audio.play?.("intro_cinematic", { volume: 0.3 });
     } finally {
       initiateBtn.disabled = false;
     }
@@ -259,15 +227,8 @@ if (initiateBtn) {
 
 if (resumeBtn) {
   resumeBtn.addEventListener("click", () => {
-    try {
-      audio.play("button_click", { volume: 0.7 });
-    } catch (e) {}
     closeMenuOverlay();
     hud.showStart?.(false);
-    // Resume gameplay music
-    if (!gameplayMusicSource) {
-      gameplayMusicSource = audio.play("gameplay_background", { volume: 0.35, loop: true, isMusic: true });
-    }
     lockPointer();
   });
 }
@@ -275,9 +236,6 @@ if (resumeBtn) {
 if (menuSettingsBtn) {
   menuSettingsBtn.addEventListener("click", () => {
     if (menuSettingsBtn.disabled) return;
-    try {
-      audio.play("button_click", { volume: 0.7 });
-    } catch (e) {}
     reopenMenuOnSettingsClose = true;
     closeMenuOverlay();
     hud.showSettings?.(true);
@@ -288,19 +246,13 @@ if (terminateBtn) {
   terminateBtn.addEventListener("click", async () => {
     if (terminateBtn.disabled) return;
     terminateBtn.disabled = true;
-    try {
-      audio.play("button_click", { volume: 0.7 });
-    } catch (e) {}
     introFinished = false;
     setResumeButtonVisible(false);
-    // Stop gameplay music
-    if (gameplayMusicSource) {
-      try {
-        gameplayMusicSource.stop();
-      } catch (e) {}
-      gameplayMusicSource = null;
-    }
     try {
+      // Reset progression to level 1 when terminating session
+      currentLevel = 1;
+      applyLevelPreset(currentLevel);
+      hud.updateLevel?.(currentLevel, LEVELS[currentLevel - 1]?.name);
       await resetGame();
       openMenuOverlay({ allowResume: false });
       initiateBtn && (initiateBtn.disabled = false);
@@ -379,6 +331,23 @@ player.resetToStart(1, 1, door.position);
 playerPositionForCam.copy(camera.position);
 let wasGrounded = player.grounded;
 
+const loader = new GLTFLoader();
+let enemyModel = null; // This will hold the loaded GLB scene
+
+async function loadGameAssets() {
+  try {
+    // IMPORTANT: Replace this with the correct path to your enemy GLB file
+    const gltf = await loader.loadAsync("models/items/enemy.glb");
+    enemyModel = gltf.scene; // Store the part we can clone
+    console.log("Enemy model loaded successfully.");
+  } catch (error) {
+    console.error(
+      "Failed to load enemy model. Enemies will be spheres.",
+      error
+    );
+  }
+}
+
 // Enemies
 function onPlayerDamage(dmg) {
   if (lost || won) return;
@@ -400,35 +369,26 @@ function onPlayerDamage(dmg) {
       console.error("Failed to play level_lose sound:", e);
     }
     playerModel.userData.triggerAction?.("death");
-    // Ensure the 3D avatar is visible and remains visible when the player dies,
-    // regardless of the current camera mode.
-    cameraMode = "third";
-    playerModel.visible = true;
+    // // Ensure the 3D avatar is visible and remains visible when the player dies,
+    // // regardless of the current camera mode.
+    // cameraMode = "first";
+    // playerModel.visible = true;
     // lock camera mode to third-person so the death fall is always visible
-    cameraMode = "third";
+    cameraMode = "first";
     lost = true;
     hud.showLose();
   }
 }
-const enemiesCtl = initEnemies(scene, camera, wallGroup, walls, maze, onPlayerDamage);
+var enemiesCtl = null;
 
 // Powerups
-const powerupsCtl = initPowerups(scene, maze, enemiesCtl);
+var powerupsCtl = null;
 
 // Weapons
-const weaponsCtl = initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerModel);
+var weaponsCtl = null;
 
 // Minimap
-const minimap = createMinimap(
-  maze,
-  door,
-  enemiesCtl.enemies,
-  powerupsCtl.powerups,
-  weaponsCtl.weapons,
-  camera,
-  look,
-  powerupsCtl.getCompassState
-);
+var minimap = null;
 
 // Keys
 const NUM_KEYS = 1; // Adjustable number of keys
@@ -443,6 +403,9 @@ async function resetGame() {
   lost = false;
   hud.hideWin();
   hud.hideLose();
+  // hide any transient Next Level button (if present)
+  const nb = document.getElementById("nextLevelBtn");
+  if (nb) nb.style.display = "none";
   cameraMode = "first";
   player.setHealth(100);
   player.resetToStart(1, 1, door.position);
@@ -450,9 +413,9 @@ async function resetGame() {
   playerPositionForCam.copy(camera.position);
   wasGrounded = player.grounded;
   player.resetKeys();
-  enemiesCtl.reset();
-  powerupsCtl.reset(player);
-  weaponsCtl.reset(player);
+  enemiesCtl?.reset();
+  powerupsCtl?.reset(player);
+  weaponsCtl?.reset(player);
 
   // Remove old keys
   for (const k of keyMeshes) scene.remove(k.mesh);
@@ -482,188 +445,6 @@ async function resetGame() {
   }
 }
 
-// Intro camera sequence (shorter, skip-able, restores first-person control)
-async function playIntroSequence() {
-  if (activeIntro) return activeIntro.promise;
-
-  let resolveIntro;
-  const promise = new Promise((resolve) => {
-    resolveIntro = resolve;
-  });
-
-  const introState = {
-    promise,
-    skipRequested: false,
-    finished: false,
-  };
-  activeIntro = introState;
-  introFinished = false;
-
-  cameraMode = "third";
-
-  const playerPos = playerPositionForCam.clone();
-
-  let introAudio = null;
-  try {
-    introAudio = audio.play?.("intro_cinematic", { volume: 0.7 });
-  } catch (e) {
-    console.warn("Intro sound failed to play:", e);
-  }
-
-  const waypoints = [
-    new THREE.Vector3(playerPos.x - 9, 4.6, playerPos.z - 9),
-    new THREE.Vector3(playerPos.x - 6.2, 3.6, playerPos.z - 5.6),
-    new THREE.Vector3(playerPos.x - 3.6, 2.8, playerPos.z - 3.0),
-    new THREE.Vector3(playerPos.x - 1.8, 2.3, playerPos.z - 1.4),
-    new THREE.Vector3(
-      playerPos.x + Math.sin(Math.PI * 0.82) * 2.7,
-      playerPos.y + 1.8,
-      playerPos.z + Math.cos(Math.PI * 0.82) * 2.7
-    ),
-    new THREE.Vector3(
-      playerPos.x + Math.sin(Math.PI * 0.6) * 2.2,
-      playerPos.y + 1.35,
-      playerPos.z + Math.cos(Math.PI * 0.6) * 2.2
-    ),
-    new THREE.Vector3(
-      playerPos.x + Math.sin(Math.PI * 0.35) * 2.0,
-      playerPos.y + 1.1,
-      playerPos.z + Math.cos(Math.PI * 0.35) * 2.0
-    ),
-    new THREE.Vector3(playerPos.x, playerPos.y + 1.0, playerPos.z - 2.0),
-  ];
-
-  const mazePhaseTime = 1.9;
-  const arrivalTime = 2.05;
-  const holdJumpTime = 1.0;
-  const arcPhaseTime = 1.6;
-  const totalDuration = mazePhaseTime + arcPhaseTime;
-  const landingTime = arrivalTime + holdJumpTime;
-
-  const lookAtTarget = new THREE.Vector3(playerPos.x, playerPos.y + 0.6, playerPos.z);
-  const tempVec = new THREE.Vector3();
-
-  const startTime = performance.now();
-  let lastFrameTime = startTime;
-  let jumpHoldTriggered = false;
-  let jumpLandTriggered = false;
-  let playerModelShown = false;
-
-  const skipActivationDelayMs = 220;
-  const allowSkipAfter = startTime + skipActivationDelayMs;
-
-  const handleKey = (e) => {
-    if (introState.finished) return;
-    if (performance.now() < allowSkipAfter) return;
-    const key = e.key?.toLowerCase();
-    if (key === " " || key === "enter" || key === "escape" || key === "skip") {
-      introState.skipRequested = true;
-    }
-  };
-  const handlePointer = () => {
-    if (introState.finished) return;
-    if (performance.now() < allowSkipAfter) return;
-    introState.skipRequested = true;
-  };
-
-  document.addEventListener("keydown", handleKey);
-  document.addEventListener("pointerdown", handlePointer);
-
-  const finalizeIntro = () => {
-    if (introState.finished) return;
-    introState.finished = true;
-    document.removeEventListener("keydown", handleKey);
-    document.removeEventListener("pointerdown", handlePointer);
-    try {
-      introAudio?.stop?.(0);
-    } catch (err) {
-      console.warn("Failed to stop intro audio:", err);
-    }
-    if (!jumpLandTriggered) {
-      playerModel.userData.triggerAction?.("jumpLand");
-      jumpLandTriggered = true;
-    }
-    camera.position.copy(waypoints[waypoints.length - 1]);
-    camera.lookAt(lookAtTarget);
-    cameraMode = "first";
-    playerModel.visible = false;
-    activeIntro = null;
-    introFinished = true;
-    resolveIntro();
-  };
-
-  function animateIntro(now) {
-    if (introState.finished) return;
-
-    const rawElapsed = (now - startTime) / 1000;
-    const elapsed = Math.min(introState.skipRequested ? totalDuration : rawElapsed, totalDuration);
-    const dt = Math.min((now - lastFrameTime) / 1000, 0.05);
-    lastFrameTime = now;
-
-    let currentPos;
-    if (elapsed < mazePhaseTime) {
-      const phase1T = elapsed / mazePhaseTime;
-      const eased = 1 - Math.pow(1 - phase1T, 3);
-      const scaledT = eased * 3;
-      const segment = Math.min(Math.floor(scaledT), 2);
-      const segmentProgress = scaledT - segment;
-      const smoothProgress = segmentProgress * segmentProgress * (3 - 2 * segmentProgress);
-      currentPos = tempVec.lerpVectors(waypoints[segment], waypoints[segment + 1], smoothProgress);
-    } else {
-      const phase2T = (elapsed - mazePhaseTime) / arcPhaseTime;
-      const eased = phase2T < 0.5
-        ? 4 * phase2T * phase2T * phase2T
-        : 1 - Math.pow(-2 * phase2T + 2, 3) / 2;
-      const scaledT = eased * 4;
-      const segment = Math.min(Math.floor(scaledT), 3) + 3;
-      const segmentProgress = scaledT - (segment - 3);
-      const smoothProgress = segmentProgress * segmentProgress * (3 - 2 * segmentProgress);
-      currentPos = tempVec.lerpVectors(
-        waypoints[segment],
-        waypoints[Math.min(segment + 1, waypoints.length - 1)],
-        smoothProgress
-      );
-    }
-
-    camera.position.copy(currentPos);
-    camera.lookAt(lookAtTarget);
-
-    if (elapsed >= arrivalTime && !jumpHoldTriggered) {
-      playerModel.visible = true;
-      playerModel.position.copy(playerPositionForCam);
-      playerModel.position.y -= AVATAR_HEIGHT / 2;
-      playerModel.userData.triggerAction?.("jumpHold");
-      jumpHoldTriggered = true;
-      playerModelShown = true;
-    }
-
-    if (elapsed >= landingTime && !jumpLandTriggered) {
-      playerModel.userData.triggerAction?.("jumpLand");
-      jumpLandTriggered = true;
-    }
-
-    if (playerModelShown) {
-      playerModel.userData.animate?.({
-        dt,
-        speed: 0,
-        grounded: jumpLandTriggered,
-        maxSpeed: player.MAX_SPEED,
-      });
-    }
-
-    if (elapsed >= totalDuration) {
-      finalizeIntro();
-      return;
-    }
-
-    requestAnimationFrame(animateIntro);
-  }
-
-  requestAnimationFrame(animateIntro);
-
-  return promise;
-}
-
 // Pointer lock & overlays
 hud.playBtn?.addEventListener("click", () => {
   hud.showStart(false);
@@ -677,18 +458,15 @@ hud.settingsBtn?.addEventListener("click", () => {
 
 document.addEventListener("pointerlockchange", () => {
   const locked = document.pointerLockElement === renderer.domElement;
-  setHudActive(locked);
   if (locked) {
     closeMenuOverlay();
     hud.showStart?.(false);
     return;
   }
   if (!won && !lost) {
-    openMenuOverlay();
+    openMenuOverlay({ allowResume: introFinished, focusResume: introFinished });
   }
 });
-
-setHudActive(false);
 
 // Toggle camera mode with 'V' key
 addEventListener("keydown", (e) => {
@@ -711,13 +489,17 @@ addEventListener("keydown", (e) => {
 addEventListener("mousedown", (e) => {
   if (e.button !== 0) return;
   // allow firing while in third-person mode even if pointer lock isn't active
-  if (cameraMode !== "third" && document.pointerLockElement !== renderer.domElement) return;
-  const handled = weaponsCtl.fire(enemiesCtl);
+  if (
+    cameraMode !== "third" &&
+    document.pointerLockElement !== renderer.domElement
+  )
+    return;
+  const handled = weaponsCtl?.fire(enemiesCtl);
   if (!handled) {
     if (!weaponsCtl.isEquipped()) {
       playerModel.userData.triggerAction?.("punch");
     }
-    enemiesCtl.performAttack(wallGroup);
+    enemiesCtl?.performAttack(wallGroup);
   }
 });
 
@@ -750,6 +532,29 @@ function checkKeyCollection() {
 
 // Start (ensure keys are loaded before animation)
 async function startGame() {
+  await loadGameAssets(); // 2. Init controllers, passing the loaded model to enemies
+
+  enemiesCtl = initEnemies(
+    scene,
+    camera,
+    wallGroup, // <-- Add wallGroup here
+    walls,
+    maze,
+    onPlayerDamage,
+    enemyModel // <-- This is now correctly passed as gltfModel
+  );
+  powerupsCtl = initPowerups(scene, maze, enemiesCtl);
+  weaponsCtl = initWeapons(scene, maze, walls, enemiesCtl, hud, camera);
+  minimap = createMinimap(
+    maze,
+    door,
+    enemiesCtl.enemies,
+    powerupsCtl.powerups,
+    weaponsCtl.weapons,
+    camera,
+    look,
+    powerupsCtl.getCompassState // <-- All other arguments now line up correctly
+  ); // 3. Reset game to spawn everything
   await resetGame();
 
   // Animate
@@ -806,15 +611,16 @@ async function startGame() {
       }
       // --- END of new collision pass ---
 
-      enemiesCtl.update(dt, true);
-      powerupsCtl.update(dt, player, camera);
-      weaponsCtl.update(dt, player, camera, enemiesCtl);
+      enemiesCtl?.update(dt, true);
+      powerupsCtl?.update(dt, player, camera);
+      weaponsCtl?.update(dt, player, camera, enemiesCtl);
       updateKeys(keyMeshes, dt);
       checkKeyCollection();
     }
 
     const compassState = powerupsCtl.getCompassState?.();
-    const compassActive = compassState?.active && (compassState.timeLeft ?? 0) > 0;
+    const compassActive =
+      compassState?.active && (compassState.timeLeft ?? 0) > 0;
     if (compassActive) {
       const toExitX = exitWorld.x - camera.position.x;
       const toExitZ = exitWorld.z - camera.position.z;
@@ -845,17 +651,17 @@ async function startGame() {
       exitBeaconBase.visible = false;
     }
 
-  // Update the visible player model to match the true player position and orientation
-  playerModel.position.copy(playerPositionForCam);
-  playerModel.position.y -= AVATAR_HEIGHT / 2;
+    // Update the visible player model to match the true player position and orientation
+    playerModel.position.copy(playerPositionForCam);
+    playerModel.position.y -= AVATAR_HEIGHT / 2;
 
-  const moveSpeed = player.vel.length();
-  playerModel.userData.animate?.({
-    dt,
-    speed: moveSpeed,
-    grounded: player.grounded,
-    maxSpeed: player.MAX_SPEED,
-  });
+    const moveSpeed = player.vel.length();
+    playerModel.userData.animate?.({
+      dt,
+      speed: moveSpeed,
+      grounded: player.grounded,
+      maxSpeed: player.MAX_SPEED,
+    });
 
     // --- MODIFIED: Make player model face its movement direction ---
     if (cameraMode === "third") {
@@ -914,12 +720,55 @@ async function startGame() {
       }
       won = true;
       hud.showWin();
+
+      // If there are further levels, show a Next Level button inside the win panel
+      try {
+        const winPanel = document.querySelector("#win .panel");
+        if (winPanel) {
+          let nextBtn = document.getElementById("nextLevelBtn");
+          if (!nextBtn) {
+            nextBtn = document.createElement("button");
+            nextBtn.id = "nextLevelBtn";
+            nextBtn.textContent = "Next Level";
+            nextBtn.style.marginLeft = "8px";
+            winPanel.appendChild(nextBtn);
+          }
+          if (currentLevel < MAX_LEVEL) {
+            nextBtn.style.display = "inline-block";
+            nextBtn.disabled = false;
+            const gotoNext = async () => {
+              nextBtn.disabled = true;
+              // Advance level, apply presets, and respawn content
+              currentLevel = Math.min(MAX_LEVEL, currentLevel + 1);
+              applyLevelPreset(currentLevel);
+              // Update HUD with new level
+              hud.updateLevel?.(currentLevel, LEVELS[currentLevel - 1]?.name);
+              // Hide win overlay and reset flags
+              hud.hideWin();
+              won = false;
+              await resetGame();
+              // resume play
+              lockPointer();
+            };
+            // Use a fresh listener (helps if the element was reused)
+            nextBtn.replaceWith(nextBtn.cloneNode(true));
+            nextBtn = document.getElementById("nextLevelBtn");
+            nextBtn.addEventListener("click", gotoNext);
+          } else {
+            // last level — keep default message
+            if (nextBtn) nextBtn.style.display = "none";
+          }
+        }
+      } catch (e) {
+        // non-fatal
+        console.warn("Next level UI failed:", e);
+      }
     }
 
     // Glow pulse
     door.material.emissiveIntensity = 0.4 + 0.2 * Math.sin(now * 0.003);
 
-    minimap.draw();
+    minimap?.draw();
     cameraShake.update(dt);
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
@@ -929,14 +778,3 @@ async function startGame() {
 
 // Start
 startGame();
-
-// Start menu music on load
-if (menuOverlay && !menuOverlay.classList.contains("menu-hidden")) {
-  requestAnimationFrame(() => {
-    try {
-      menuMusicSource = audio.play("menu_background", { volume: 0.4, loop: true, isMusic: true });
-    } catch (e) {
-      console.warn("Failed to autoplay menu music:", e);
-    }
-  });
-}

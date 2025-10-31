@@ -13,6 +13,12 @@ export const MAZE = {
   WALL_H: 1.6,
 };
 
+export const ENEMY_STATE = {
+  PATROL: "patrol",
+  CHASE: "chase",
+  ATTACK: "attack",
+};
+
 export const MOVE = {
   ACCEL: 30,
   MAX_SPEED: 20,
@@ -23,7 +29,7 @@ export const MOVE = {
 
 export const ENEMY = {
   SPEED: 1.6,
-  RADIUS: 0.28,
+  RADIUS: 0.49,
   DMG_PER_SEC: 1,
   REPLAN_DT: 0.1,
   TARGET_COUNT: 6,
@@ -53,7 +59,7 @@ export const COMBAT = {
 
 export const POWERUP = {
   COUNT: 10,
-  DURATION: 15,
+  DURATION: 100,
   JUMP_MULT: 2,
   GRAVITY_MULT: 0.3,
   PICKUP_RADIUS: 0.6,
@@ -73,3 +79,61 @@ export const MINIMAP = {
   PAD: 2,
   RADIUS_TILES: 5,
 };
+
+// Level presets - lightweight overrides for per-level tuning.
+// Each level can override any subset of the exported constant objects.
+export const LEVELS = [
+  {
+    // Level 1: Easy - few enemies, more powerups
+    name: "Level 1",
+    ENEMY: { TARGET_COUNT: 1, SPEED: 1.4 },
+    POWERUP: { COUNT: 12 },
+    MOVE: { MAX_SPEED: 18 },
+  },
+  {
+    // Level 2: Medium
+    name: "Level 2",
+    ENEMY: { TARGET_COUNT: 7, SPEED: 1.8 },
+    POWERUP: { COUNT: 9 },
+    MOVE: { MAX_SPEED: 20 },
+  },
+  {
+    // Level 3: Hard
+    name: "Level 3",
+    ENEMY: { TARGET_COUNT: 11, SPEED: 2.2 },
+    POWERUP: { COUNT: 6 },
+    MOVE: { MAX_SPEED: 22 },
+  },
+];
+
+// Apply a level preset by mutating the exported objects in-place.
+// We mutate so other modules that imported these objects see updates.
+export function applyLevelPreset(levelNumber) {
+  const idx = Math.max(0, Math.min(LEVELS.length - 1, levelNumber - 1));
+  const preset = LEVELS[idx] || {};
+
+  // Helper: copy keys into target object (shallow)
+  function applyTo(target, patch) {
+    if (!patch || typeof patch !== "object") return;
+    Object.keys(patch).forEach((k) => {
+      // if nested object exists, merge shallowly
+      if (
+        typeof patch[k] === "object" &&
+        patch[k] !== null &&
+        target[k] &&
+        typeof target[k] === "object"
+      ) {
+        Object.assign(target[k], patch[k]);
+      } else {
+        target[k] = patch[k];
+      }
+    });
+  }
+
+  // Apply to known exported objects
+  applyTo(ENEMY, preset.ENEMY);
+  applyTo(POWERUP, preset.POWERUP);
+  applyTo(MOVE, preset.MOVE);
+  applyTo(MAZE, preset.MAZE);
+  applyTo(WORLD, preset.WORLD);
+}

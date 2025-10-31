@@ -21,8 +21,6 @@
           "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
           "three/examples/jsm/loaders/GLTFLoader.js": "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js",
           "three/examples/jsm/utils/SkeletonUtils.js": "https://unpkg.com/three@0.160.0/examples/jsm/utils/SkeletonUtils.js"
-
-          
         }
       }
     </script>
@@ -44,235 +42,50 @@
 
       .hud {
         position: fixed;
-        left: 28px;
-        top: 28px;
-        width: clamp(300px, 30vw, 392px);
-        background:
-          linear-gradient(160deg, rgba(18, 28, 42, 0.95) 0%, rgba(9, 14, 22, 0.94) 60%, rgba(21, 38, 58, 0.93) 100%),
-          radial-gradient(circle at -20% -10%, rgba(80, 162, 255, 0.4) 0%, transparent 55%);
-        border: 1px solid rgba(96, 148, 255, 0.38);
-        border-radius: 22px;
-        padding: 30px 36px 32px;
-        font-size: 13px;
-        line-height: 1.55;
-        letter-spacing: 0.01em;
+        left: 12px;
+        top: 12px;
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 10px 12px;
+        border-radius: 10px;
+        font-size: 14px;
+        line-height: 1.4;
         user-select: none;
-        backdrop-filter: blur(20px);
-        box-shadow:
-          0 20px 48px rgba(0, 8, 24, 0.6),
-          inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(4px);
         z-index: 5;
-        overflow: hidden;
-        opacity: 0;
-        transform: translateY(-22px) scale(0.97);
-        transition: opacity 0.45s ease, transform 0.45s ease;
-        display: flex;
-        flex-direction: column;
-        gap: 24px;
-      }
-      .hud::before {
-        content: "";
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(120deg, rgba(72, 160, 255, 0.16), rgba(72, 255, 214, 0.08));
-        pointer-events: none;
-        opacity: 0.45;
-      }
-      .hud::after {
-        content: "";
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 3px;
-        height: 100%;
-        background: linear-gradient(180deg, rgba(72, 160, 255, 0.95), rgba(72, 255, 214, 0));
-        box-shadow: 0 0 20px rgba(72, 160, 255, 0.6);
-        opacity: 0;
-        transition: opacity 0.4s ease;
-      }
-      @keyframes hud-scan {
-        0% {
-          opacity: 0.25;
-        }
-        50% {
-          opacity: 0.9;
-        }
-        100% {
-          opacity: 0.25;
-        }
-      }
-      body.hud-active .hud {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-      }
-      body.hud-active .hud::after {
-        opacity: 1;
-        animation: hud-scan 4s linear infinite;
+        min-width: 280px;
       }
       .hud kbd {
-        background: rgba(11, 22, 42, 0.65);
-        border: 1px solid rgba(114, 172, 255, 0.35);
+        background: #11161f;
+        border: 1px solid #324255;
+        border-bottom-width: 2px;
+        padding: 1px 6px;
         border-radius: 6px;
-        padding: 2px 8px 3px;
         font-size: 12px;
-        font-weight: 600;
         margin: 0 2px;
-        letter-spacing: 0.08em;
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-      }
-      .hud__intro {
-        position: relative;
-        display: flex;
-        gap: 18px;
-        align-items: flex-start;
-        opacity: 0.85;
-        transform: translateY(6px);
-        transition: opacity 0.4s ease, transform 0.4s ease;
-      }
-      body.hud-active .hud__intro {
-        opacity: 1;
-        transform: translateY(0);
-      }
-      .hud__badge {
-        font-size: 10px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.32em;
-        color: rgba(161, 206, 255, 0.95);
-        background: rgba(33, 73, 116, 0.45);
-        border: 1px solid rgba(120, 190, 255, 0.35);
-        padding: 6px 10px;
-        border-radius: 999px;
-        box-shadow: 0 0 14px rgba(72, 160, 255, 0.25);
-        white-space: nowrap;
-      }
-      .hud__intro p {
-        margin: 0;
-        color: rgba(226, 239, 255, 0.92);
-        font-size: 13px;
-      }
-      .hud__emphasis {
-        color: rgba(255, 201, 125, 0.95);
-        font-weight: 600;
-      }
-      .hud__divider {
-        position: relative;
-        height: 1px;
-        background: linear-gradient(90deg, rgba(72, 160, 255, 0), rgba(72, 160, 255, 0.7), rgba(72, 160, 255, 0));
-        margin: 0;
-      }
-      .hud__section {
-        display: grid;
-        gap: 16px;
-        opacity: 0.8;
-        transform: translateY(12px);
-        transition: opacity 0.4s ease, transform 0.4s ease;
-      }
-      .hud__section:nth-of-type(2) {
-        transition-delay: 0.08s;
-      }
-      .hud__section:nth-of-type(3) {
-        transition-delay: 0.16s;
-      }
-      body.hud-active .hud__section {
-        opacity: 1;
-        transform: translateY(0);
-      }
-      .hud__section-title {
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.28em;
-        color: rgba(164, 206, 255, 0.85);
-        font-weight: 700;
+        box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.05);
       }
       .health-wrap {
-        display: grid;
-        gap: 8px;
+        margin-top: 8px;
       }
       .healthbar {
-        height: 16px;
+        height: 12px;
         width: 100%;
+        background: rgba(255, 255, 255, 0.08);
         border-radius: 999px;
         overflow: hidden;
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        background: linear-gradient(180deg, rgba(10, 18, 28, 0.92), rgba(10, 24, 38, 0.75));
-        box-shadow: inset 0 0 14px rgba(17, 38, 64, 0.65);
+        border: 1px solid rgba(255, 255, 255, 0.12);
       }
       .healthfill {
         height: 100%;
         width: 100%;
+        background: linear-gradient(90deg, #ff4d4d, #ffaf4d);
         transform-origin: left center;
-        background: linear-gradient(90deg, rgba(255, 94, 94, 0.95), rgba(255, 187, 94, 0.95));
-        box-shadow: 0 0 18px rgba(255, 118, 86, 0.45);
-        transition: transform 0.18s ease-out, box-shadow 0.18s ease-out;
       }
       .healthtext {
         font-size: 12px;
-        font-weight: 600;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: rgba(226, 239, 255, 0.88);
-      }
-      .hud__chips {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-        align-items: center;
-      }
-      .hud__chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 12px;
-        border-radius: 12px;
-        background: rgba(30, 54, 78, 0.6);
-        border: 1px solid rgba(112, 180, 255, 0.35);
-        font-size: 12px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: rgba(205, 230, 255, 0.92);
-        transform: translateY(6px);
-        transition: transform 0.25s ease, opacity 0.25s ease;
-        opacity: 0;
-      }
-      body.hud-active .hud__chip {
-        transform: translateY(0);
-        opacity: 1;
-      }
-      .hud__chip[style*="display: none"] {
-        opacity: 0 !important;
-        transform: translateY(6px) !important;
-      }
-      .hud__chip span {
-        font-variant-numeric: tabular-nums;
-      }
-      .hud__meta {
-        font-size: 12px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: rgba(193, 217, 255, 0.85);
-      }
-      #weaponHudRow {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 10px 14px;
-        border-radius: 12px;
-        background: rgba(16, 28, 44, 0.65);
-        border: 1px solid rgba(110, 168, 255, 0.3);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-      }
-      #weaponName {
-        font-size: 12px;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
-        color: rgba(226, 239, 255, 0.9);
-      }
-      #weaponAmmo {
-        font-size: 12px;
-        font-variant-numeric: tabular-nums;
-        color: rgba(205, 230, 255, 0.78);
+        opacity: 0.85;
+        margin-top: 4px;
       }
 
       .center {
@@ -621,16 +434,10 @@
         box-shadow:
           0 0 24px rgba(255, 255, 255, 0.24),
           inset 0 0 20px rgba(255, 255, 255, 0.12);
-        transform: translateZ(18px) scale(1.02);
+        transform: translateZ(18px);
       }
       .neural-menu .menu-button:hover::before {
         transform: translateX(100%);
-      }
-      .neural-menu .menu-button:active {
-        transform: translateZ(12px) scale(0.98);
-        box-shadow:
-          0 0 16px rgba(255, 255, 255, 0.18),
-          inset 0 0 14px rgba(255, 255, 255, 0.08);
       }
       .neural-menu .menu-button:disabled {
         opacity: 0.5;
@@ -677,7 +484,6 @@
           opacity: 1;
         }
       }
-
     </style>
   </head>
   <body>
@@ -693,7 +499,7 @@
             <button id="terminateBtn" class="menu-button" type="button">
               <span>Terminate Session</span>
             </button>
-            <button id="resumeBtn" class="menu-button" type="button">
+            <button id="resumeBtn" class="menu-button" type="button" style="display: none">
               <span>Return to Game</span>
             </button>
             <button id="menuSettingsBtn" class="menu-button" type="button">
@@ -710,43 +516,68 @@
     <div id="app"></div>
 
     <div class="hud">
-      <div class="hud__intro">
-        <div class="hud__badge">Neural Brief</div>
-        <p>
-          Click the screen to engage view • Move: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows •
-          <span class="hud__emphasis">Jump: <kbd>Space</kbd></span> •
-          <span class="hud__emphasis">Attack: Left Click</span> • Reset: <kbd>R</kbd> • Goal: glowing cube
-        </p>
-      </div>
-      <div class="hud__divider"></div>
-      <div class="hud__section hud__section--vitals">
-        <div class="hud__section-title">Vitals</div>
-        <div class="health-wrap">
-          <div class="healthbar">
-            <div id="healthfill" class="healthfill"></div>
-          </div>
-          <div id="healthtext" class="healthtext">Health: 100 / 100</div>
+      Click the screen to look around • Move: <kbd>W</kbd><kbd>A</kbd
+      ><kbd>S</kbd><kbd>D</kbd> or arrows • <b>Jump: <kbd>Space</kbd></b
+      ><br />
+      <b>Attack: Left Click</b> • Reset: <kbd>R</kbd> • Goal: glowing cube
+      <div class="health-wrap">
+        <div class="healthbar">
+          <div id="healthfill" class="healthfill"></div>
         </div>
-      </div>
-      <div class="hud__section hud__section--status">
-        <div class="hud__section-title">Field Status</div>
-        <div id="powerupsHud" class="hud__chips">
-          <div id="jumpHud" class="hud__chip" style="display: none">
+        <div id="healthtext" class="healthtext">Health: 100 / 100</div>
+        <div
+          id="powerupsHud"
+          style="margin-top: 8px; display: flex; gap: 8px; align-items: center"
+        >
+          <div
+            id="jumpHud"
+            style="
+              display: none;
+              padding: 4px 8px;
+              border-radius: 8px;
+              background: #142131;
+              border: 1px solid #2c3a4d;
+              font-size: 12px;
+            "
+          >
             Jump ↑ <span id="jumpTimer">10.0</span>s
           </div>
-          <div id="freezeHud" class="hud__chip" style="display: none">
+          <div
+            id="freezeHud"
+            style="
+              display: none;
+              padding: 4px 8px;
+              border-radius: 8px;
+              background: #142131;
+              border: 1px solid #2c3a4d;
+              font-size: 12px;
+            "
+          >
             Freeze <span id="freezeTimer">10.0</span>s
           </div>
-          <div id="speedHud" class="hud__chip" style="display: none">
+          <div
+            id="speedHud"
+            style="
+              display: none;
+              padding: 4px 8px;
+              border-radius: 8px;
+              background: #142131;
+              border: 1px solid #2c3a4d;
+              font-size: 12px;
+            "
+          >
             Speed <span id="speedTimer">8.0</span>s
           </div>
         </div>
-        <div id="keysHud" class="hud__meta">
+        <div
+          id="keysHud"
+          style="margin-top: 8px; font-size: 13px; opacity: 0.92"
+        >
           Keys: <span id="keysCount">0</span> / <span id="keysTotal">0</span>
         </div>
-        <div class="weapon-row" id="weaponHudRow">
+        <div class="weapon-row" id="weaponHudRow" style="margin-top: 8px">
           <div class="weapon-name" id="weaponName">Unarmed</div>
-          <div id="weaponAmmo"></div>
+          <div id="weaponAmmo" style="opacity: 0.85"></div>
         </div>
       </div>
     </div>
