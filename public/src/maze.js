@@ -121,28 +121,26 @@ export function buildWalls(scene, maze) {
     metalness: 0.08,
   });
 
-  // External texture URL provided by user
-  const externalTexUrl = "https://cdn.polyhaven.com/asset_img/primary/metal_plate.png?height=780";
+  // Attempt to use the provided local sci-fi texture for walls. If loading fails,
+  // the procedural canvas texture remains in place as a fallback.
+  const sciFiTexturePath = "./models/items/36325405_desmumtz14.jpg";
   try {
     const texLoader = new THREE.TextureLoader();
     texLoader.load(
-      externalTexUrl,
+      sciFiTexturePath,
       (tex) => {
         tex.wrapS = THREE.RepeatWrapping;
         tex.wrapT = THREE.RepeatWrapping;
-        // tune tiling so the plates look reasonable on wall blocks
-        tex.repeat.set(3, 1.25);
-        // set a conservative anisotropy value; if a renderer is available you
-        // could read renderer.capabilities.getMaxAnisotropy()
+        tex.repeat.set(2.5, 1.35);
         tex.anisotropy = 8;
         tex.encoding = THREE.sRGBEncoding;
         mat.map = tex;
         mat.needsUpdate = true;
-        console.log("Loaded external wall texture:", externalTexUrl);
+        console.log("Loaded sci-fi wall texture:", sciFiTexturePath);
       },
       undefined,
       (err) => {
-        console.warn("Failed to load external wall texture, using canvas fallback:", err);
+        console.warn("Failed to load sci-fi wall texture, keeping canvas fallback:", err);
       }
     );
   } catch (e) {

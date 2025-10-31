@@ -62,10 +62,11 @@ export class AudioManager {
     return { src, gain };
   }
 
-  play(name, { volume = 1.0, loop = false } = {}) {
+  play(name, { volume = 1.0, loop = false, isMusic = false } = {}) {
     if (!this.enabled || !this.ctx || !this.buffers.has(name)) return;
     const buffer = this.buffers.get(name);
-    const { src, gain } = this._createSource(buffer, this.sfxGain);
+    const destGain = isMusic ? this.musicGain : this.sfxGain;
+    const { src, gain } = this._createSource(buffer, destGain);
     gain.gain.value = volume;
     src.loop = loop;
     src.start();

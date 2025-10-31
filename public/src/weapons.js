@@ -13,7 +13,7 @@ const WeaponTypes = {
     color: 0x9fbfff,
     emissive: 0x2a49ff,
     kind: "projectile",
-    ammoCap: 500,
+    ammoCap: 12,
     damage: 25,
     projectileSpeed: 30,
     projectileRadius: 0.12,
@@ -500,8 +500,8 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
           } else {
             e.hp -= wt.damage;
             e.hitFlash = 0.5;
-            // e.mesh.scale.setScalar(1.2);
-            // setTimeout(() => e.mesh.scale.setScalar(1), 100);
+            e.mesh.scale.setScalar(1.2);
+            setTimeout(() => e.mesh.scale.setScalar(1), 100);
             if (e.hp <= 0 && !e.dead) {
               e.dead = true;
             }
@@ -564,34 +564,17 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
       const aliveMeshes = enemiesCtl.enemies
         .filter((e) => !e.dead)
         .map((e) => e.mesh);
-      const hitE = ray.intersectObjects(aliveMeshes, true);
+      const hitE = ray.intersectObjects(aliveMeshes, false);
       if (hitE.length) {
         const hit = hitE[0];
-
-        // find the top-level enemy that owns this hit mesh
-        const enemy = enemiesCtl.enemies.find((ee) => {
-          if (ee.mesh === hit.object) return true;
-          // check if this enemy group contains the hit object
-          return ee.mesh.getObjectById && ee.mesh.getObjectById(hit.object.id);
-        });
-
+        const enemy = enemiesCtl.enemies.find((ee) => ee.mesh === hit.object);
         if (enemy) {
-          try {
-            // Play the metal hit sound
-            audio.play("metal_hit", { volume: 0.7}); // Adjust volume as needed
-          } catch (e) {
-            console.error("Failed to play metal_hit sound:", e);
-          }
-         if (typeof enemiesCtl.applyDamage === "function") {
-          enemiesCtl.applyDamage(enemy, p.dmg);
-        } else {
-          // Fallback just in case (but the function should be there)
           enemy.hp -= p.dmg;
-          enemy.hitFlash = 1.0; 
+          enemy.hitFlash = 0.2;
+          enemy.mesh.scale.setScalar(1.12);
+          setTimeout(() => enemy.mesh.scale.setScalar(1), 80);
           if (enemy.hp <= 0 && !enemy.dead) enemy.dead = true;
         }
-        }
-
         // remove projectile
         scene.remove(p.mesh);
         projectiles.splice(i, 1);

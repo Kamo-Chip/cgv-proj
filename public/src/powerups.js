@@ -43,7 +43,7 @@ const PowerupTypes = {
       el: document.getElementById("jumpHud"),
       timer: document.getElementById("jumpTimer"),
       show(timeLeft) {
-        this.el.style.display = "inline-block";
+        this.el.style.display = "inline-flex";
         this.timer.textContent = timeLeft.toFixed(1);
       },
       hide() {
@@ -68,7 +68,7 @@ const PowerupTypes = {
       el: document.getElementById("freezeHud"),
       timer: document.getElementById("freezeTimer"),
       show(timeLeft) {
-        this.el.style.display = "inline-block";
+        this.el.style.display = "inline-flex";
         this.timer.textContent = timeLeft.toFixed(1);
       },
       hide() {
@@ -93,7 +93,7 @@ const PowerupTypes = {
       el: document.getElementById("speedHud"),
       timer: document.getElementById("speedTimer"),
       show(timeLeft) {
-        this.el.style.display = "inline-block";
+        this.el.style.display = "inline-flex";
         this.timer.textContent = timeLeft.toFixed(1);
       },
       hide() {

@@ -34,6 +34,16 @@ export function createScene() {
 
   // Ground floor using GLB asset
   const loader = new GLTFLoader();
+  const textureLoader = new THREE.TextureLoader();
+  const FLOOR_TEXTURE_URL = new URL(
+    "../models/items/3d-geometric-abstract-background.jpg",
+    import.meta.url
+  ).href;
+  const baseFloorTexture = textureLoader.load(FLOOR_TEXTURE_URL);
+  baseFloorTexture.wrapS = THREE.RepeatWrapping;
+  baseFloorTexture.wrapT = THREE.RepeatWrapping;
+  baseFloorTexture.anisotropy = 8;
+  baseFloorTexture.encoding = THREE.sRGBEncoding;
   const FLOOR_MODEL_URL = new URL(
     "../models/items/floor_asset_low_poly.glb",
     import.meta.url
@@ -64,6 +74,13 @@ export function createScene() {
           if (floorMaterial) {
             floorMaterial.roughness = 0.85;
             floorMaterial.metalness = 0.1;
+            const instancedTexture = baseFloorTexture.clone();
+            instancedTexture.wrapS = THREE.RepeatWrapping;
+            instancedTexture.wrapT = THREE.RepeatWrapping;
+            instancedTexture.repeat.set(2.4, 2.4);
+            instancedTexture.needsUpdate = true;
+            floorMaterial.map = instancedTexture;
+            floorMaterial.needsUpdate = true;
           }
         }
       });
@@ -95,52 +112,43 @@ export function createScene() {
         }
         instancedMesh.instanceMatrix.needsUpdate = true;
         scene.add(instancedMesh);
-      } else {
-        // Fallback: just use the model as-is, scaled up
-        floorModel.position.set(0, 0, 0);
-        const scale = mazeSize / Math.max(size.x, size.z);
-        floorModel.scale.setScalar(scale);
-        floorModel.traverse((child) => {
-          if (child.isMesh) {
-            child.receiveShadow = true;
-            child.castShadow = false;
-          }
-        });
-        // Attempt to load an external floor texture and apply it to the model's material
-        const externalFloor = "https://cdn.polyhaven.com/asset_img/primary/worn_asphalt.png?height=760&quality=780";
-        try {
-          const tLoader = new THREE.TextureLoader();
-          tLoader.load(
-            externalFloor,
-            (tex) => {
-              tex.wrapS = THREE.RepeatWrapping;
-              tex.wrapT = THREE.RepeatWrapping;
-              tex.repeat.set(tilesX * 0.5, tilesZ * 0.5);
-              tex.anisotropy = 8;
-              tex.encoding = THREE.sRGBEncoding;
-              floorModel.traverse((child) => {
-                if (child.isMesh && child.material) {
-                  child.material.map = tex;
+          } else {
+            // Fallback: just use the model as-is, scaled up with the local texture applied
+            floorModel.position.set(0, 0, 0);
+            const scale = mazeSize / Math.max(size.x, size.z);
+            floorModel.scale.setScalar(scale);
+            const fallbackTexture = baseFloorTexture.clone();
+            fallbackTexture.wrapS = THREE.RepeatWrapping;
+            fallbackTexture.wrapT = THREE.RepeatWrapping;
+            fallbackTexture.repeat.set(tilesX * 0.6, tilesZ * 0.6);
+            fallbackTexture.needsUpdate = true;
+            floorModel.traverse((child) => {
+              if (child.isMesh) {
+                child.receiveShadow = true;
+                child.castShadow = false;
+                if (child.material) {
+                  child.material.map = fallbackTexture;
                   child.material.needsUpdate = true;
                 }
-              });
-              scene.add(floorModel);
-            },
-            undefined,
-            (err) => {
-              console.warn("Failed to load external floor texture, using model material:", err);
-              scene.add(floorModel);
-            }
-          );
-        } catch (e) {
-          console.warn("TextureLoader error, using model material:", e);
-          scene.add(floorModel);
-        }
-      }
+              }
+            });
+            scene.add(floorModel);
+          }
     },
     undefined,
     (error) => {
-      console.error("Error loading floor asset:", error);
+          new THREE.MeshStandardMaterial({
+            color: 0x1b2431,
+            roughness: 0.95,
+            map: (() => {
+              const texture = baseFloorTexture.clone();
+              texture.wrapS = THREE.RepeatWrapping;
+              texture.wrapT = THREE.RepeatWrapping;
+              texture.repeat.set(40, 40);
+              texture.needsUpdate = true;
+              return texture;
+            })(),
+          })
       // Fallback to simple plane
       const ground = new THREE.Mesh(
         new THREE.PlaneGeometry(300, 300),
