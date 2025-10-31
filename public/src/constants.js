@@ -89,6 +89,14 @@ export const LEVELS = [
     ENEMY: { TARGET_COUNT: 1, SPEED: 1.4 },
     POWERUP: { COUNT: 12 },
     MOVE: { MAX_SPEED: 18 },
+    skybox: [
+      './skybox/corona_ft.png',
+      './skybox/corona_bk.png',
+      './skybox/corona_up.png',
+      './skybox/corona_dn.png',
+      './skybox/corona_rt.png',
+      './skybox/corona_lf.png'
+    ]
   },
   {
     // Level 2: Medium
@@ -96,6 +104,14 @@ export const LEVELS = [
     ENEMY: { TARGET_COUNT: 7, SPEED: 1.8 },
     POWERUP: { COUNT: 9 },
     MOVE: { MAX_SPEED: 20 },
+    skybox: [
+      './skybox/redeclipse_ft.png',
+      './skybox/redeclipse_bk.png',
+      './skybox/redeclipse_up.png',
+      './skybox/redeclipse_dn.png',
+      './skybox/redeclipse_rt.png',
+      './skybox/redeclipse_lf.png'
+    ]
   },
   {
     // Level 3: Hard
@@ -103,6 +119,14 @@ export const LEVELS = [
     ENEMY: { TARGET_COUNT: 11, SPEED: 2.2 },
     POWERUP: { COUNT: 6 },
     MOVE: { MAX_SPEED: 22 },
+    skybox: [
+      './skybox/space_ft.png',
+      './skybox/space_bk.png',
+      './skybox/space_up.png',
+      './skybox/space_dn.png',
+      './skybox/space_rt.png',
+      './skybox/space_lf.png'
+    ]
   },
 ];
 
