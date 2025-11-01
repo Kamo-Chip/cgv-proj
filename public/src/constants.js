@@ -10,7 +10,7 @@ export const MAZE = {
   W: 21,
   H: 21,
   CELL: 2,
-  WALL_H: 1.6,
+  WALL_H: 6.4,
 };
 
 export const ENEMY_STATE = {
@@ -86,47 +86,50 @@ export const LEVELS = [
   {
     // Level 1: Easy - few enemies, more powerups
     name: "Level 1",
-    ENEMY: { TARGET_COUNT: 1, SPEED: 1.4 },
-    POWERUP: { COUNT: 12 },
+    ENEMY: { TARGET_COUNT: 5, SPEED: 1.4 },
+    POWERUP: { COUNT: 10 },
     MOVE: { MAX_SPEED: 18 },
+    MAZE: { W: 11, H: 11 },
     skybox: [
-      './skybox/corona_ft.png',
-      './skybox/corona_bk.png',
-      './skybox/corona_up.png',
-      './skybox/corona_dn.png',
-      './skybox/corona_rt.png',
-      './skybox/corona_lf.png'
-    ]
+      "./skybox/corona_ft.png",
+      "./skybox/corona_bk.png",
+      "./skybox/corona_up.png",
+      "./skybox/corona_dn.png",
+      "./skybox/corona_rt.png",
+      "./skybox/corona_lf.png",
+    ],
   },
   {
     // Level 2: Medium
     name: "Level 2",
-    ENEMY: { TARGET_COUNT: 7, SPEED: 1.8 },
-    POWERUP: { COUNT: 9 },
+    ENEMY: { TARGET_COUNT: 10, SPEED: 1.8 },
+    POWERUP: { COUNT: 12 },
     MOVE: { MAX_SPEED: 20 },
+    MAZE: { W: 15, H: 15 },
     skybox: [
-      './skybox/redeclipse_ft.png',
-      './skybox/redeclipse_bk.png',
-      './skybox/redeclipse_up.png',
-      './skybox/redeclipse_dn.png',
-      './skybox/redeclipse_rt.png',
-      './skybox/redeclipse_lf.png'
-    ]
+      "./skybox/redeclipse_ft.png",
+      "./skybox/redeclipse_bk.png",
+      "./skybox/redeclipse_up.png",
+      "./skybox/redeclipse_dn.png",
+      "./skybox/redeclipse_rt.png",
+      "./skybox/redeclipse_lf.png",
+    ],
   },
   {
     // Level 3: Hard
     name: "Level 3",
-    ENEMY: { TARGET_COUNT: 11, SPEED: 2.2 },
+    ENEMY: { TARGET_COUNT: 12, SPEED: 2.2 },
     POWERUP: { COUNT: 6 },
     MOVE: { MAX_SPEED: 22 },
+    MAZE: { W: 19, H: 19 },
     skybox: [
-      './skybox/space_ft.png',
-      './skybox/space_bk.png',
-      './skybox/space_up.png',
-      './skybox/space_dn.png',
-      './skybox/space_rt.png',
-      './skybox/space_lf.png'
-    ]
+      "./skybox/space_ft.png",
+      "./skybox/space_bk.png",
+      "./skybox/space_up.png",
+      "./skybox/space_dn.png",
+      "./skybox/space_rt.png",
+      "./skybox/space_lf.png",
+    ],
   },
 ];
 

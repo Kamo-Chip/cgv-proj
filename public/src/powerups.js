@@ -17,7 +17,7 @@ const PowerupTypes = {
     color: 0x48ffd6,
     emissive: 0x159a7f,
     duration: COMPASS_DURATION,
-    spawnWeight: COMPASS_WEIGHT,
+    spawnWeight: 1,
     apply(player, context = {}) {
       context.activateCompass?.(this.duration);
     },

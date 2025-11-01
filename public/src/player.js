@@ -15,19 +15,16 @@ export class Player {
     this.yOffset = 0;
     this.grounded = true;
 
-    // this.GRAVITY = MOVE.BASE_GRAVITY;
-    // this.JUMP_V = MOVE.BASE_JUMP_V;
-
-    this.GRAVITY = MOVE.BASE_GRAVITY * POWERUP.GRAVITY_MULT;
-    this.JUMP_V = MOVE.BASE_JUMP_V * POWERUP.JUMP_MULT;
+    this.GRAVITY = MOVE.BASE_GRAVITY;
+    this.JUMP_V = MOVE.BASE_JUMP_V;
 
     this.health = 100;
     this.hud = hud;
     this.keys = new Set();
     this.collectedKeys = new Set();
 
-    this.MAX_SPEED = MOVE.MAX_SPEED * 5;
-    this.ACCEL = MOVE.ACCEL * 5;
+    this.MAX_SPEED = MOVE.MAX_SPEED;
+    this.ACCEL = MOVE.ACCEL;
 
     // head bobbing state
     this.bobPhase = 0; // oscillation phase
@@ -40,7 +37,8 @@ export class Player {
     this.stepMaxInterval = 0.5; // slowest cadence (seconds) at walk start
     this._bobPrevSin = 0; // to detect left/right step zero-crossings
 
-    addEventListener("keydown", (e) => {
+    // Bind input handlers so we can remove them on dispose (prevents duplicates across level changes)
+    this._onKeyDown = (e) => {
       const k = e.key.toLowerCase();
       if (
         [
@@ -59,8 +57,11 @@ export class Player {
         e.preventDefault();
       this.keys.add(k);
       if (e.code === "Space") this.tryJump();
-    });
-    addEventListener("keyup", (e) => this.keys.delete(e.key.toLowerCase()));
+    };
+    this._onKeyUp = (e) => this.keys.delete(e.key.toLowerCase());
+
+    addEventListener("keydown", this._onKeyDown);
+    addEventListener("keyup", this._onKeyUp);
   }
 
   setHealth(h) {
@@ -252,5 +253,15 @@ export class Player {
       WORLD.PLAYER_BASE_H + this.yOffset + this.bobOffsetY,
       nz
     );
+  }
+
+  // Allow callers to clean up event listeners when recreating the Player
+  dispose() {
+    try {
+      if (this._onKeyDown) removeEventListener("keydown", this._onKeyDown);
+    } catch (e) {}
+    try {
+      if (this._onKeyUp) removeEventListener("keyup", this._onKeyUp);
+    } catch (e) {}
   }
 }

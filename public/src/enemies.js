@@ -77,8 +77,16 @@ export function initEnemies(
     setModelMaterial(model, (mat) => {
       if (!cache.has(mat.uuid)) {
         cache.set(mat.uuid, {
-          color: mat.color.clone(),
-          emissive: mat.emissive.clone(),
+          // colors
+          color: mat.color?.clone?.() ?? null,
+          emissive: mat.emissive?.clone?.() ?? null,
+          // a few other props that may influence perceived tint
+          roughness: typeof mat.roughness === "number" ? mat.roughness : undefined,
+          metalness: typeof mat.metalness === "number" ? mat.metalness : undefined,
+          emissiveIntensity:
+            typeof mat.emissiveIntensity === "number" ? mat.emissiveIntensity : undefined,
+          map: mat.map ?? null,
+          emissiveMap: mat.emissiveMap ?? null,
         });
       }
     });
@@ -688,19 +696,56 @@ export function initEnemies(
     for (const e of enemies) {
       setModelMaterial(e.mesh, (mat) => {
         if (isFrozen) {
-          mat.color.set(0xcccccc);
-          mat.emissive.set(0x555555);
+          // Stash per-material originals as a fallback in case uuids change
+          if (!mat.userData) mat.userData = {};
+          if (!mat.userData.__origMatProps) {
+            mat.userData.__origMatProps = {
+              color: mat.color?.clone?.(),
+              emissive: mat.emissive?.clone?.(),
+              roughness: mat.roughness,
+              metalness: mat.metalness,
+              emissiveIntensity: mat.emissiveIntensity,
+              map: mat.map,
+              emissiveMap: mat.emissiveMap,
+            };
+          }
+
+          mat.color?.set?.(0xcccccc);
+          mat.emissive?.set?.(0x555555);
+          mat.needsUpdate = true;
         } else {
           // Restore from cache if it exists, otherwise use defaults
           const original = e.materialCache?.get(mat.uuid);
+          const fallback = mat.userData?.__origMatProps;
+
+          if (original?.color) mat.color?.copy?.(original.color);
+          else if (fallback?.color) mat.color?.copy?.(fallback.color);
+          else mat.color?.set?.(0xff5252);
+
+          if (original?.emissive) mat.emissive?.copy?.(original.emissive);
+          else if (fallback?.emissive) mat.emissive?.copy?.(fallback.emissive);
+          else mat.emissive?.set?.(0x550000);
+
+          // Restore a few influential params if we cached them
           if (original) {
-            mat.color.copy(original.color);
-            mat.emissive.copy(original.emissive);
-          } else {
-            // Fallback for sphere
-            mat.color.set(0xff5252);
-            mat.emissive.set(0x550000);
+            if (original.roughness !== undefined) mat.roughness = original.roughness;
+            if (original.metalness !== undefined) mat.metalness = original.metalness;
+            if (original.emissiveIntensity !== undefined)
+              mat.emissiveIntensity = original.emissiveIntensity;
+            if (original.map !== undefined) mat.map = original.map;
+            if (original.emissiveMap !== undefined) mat.emissiveMap = original.emissiveMap;
+          } else if (fallback) {
+            if (fallback.roughness !== undefined) mat.roughness = fallback.roughness;
+            if (fallback.metalness !== undefined) mat.metalness = fallback.metalness;
+            if (fallback.emissiveIntensity !== undefined)
+              mat.emissiveIntensity = fallback.emissiveIntensity;
+            if (fallback.map !== undefined) mat.map = fallback.map;
+            if (fallback.emissiveMap !== undefined) mat.emissiveMap = fallback.emissiveMap;
           }
+
+          // Clear per-material fallback and force refresh
+          if (mat.userData) delete mat.userData.__origMatProps;
+          mat.needsUpdate = true;
         }
       });
     }

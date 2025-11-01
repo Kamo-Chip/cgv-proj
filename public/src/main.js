@@ -1,26 +1,24 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import { audio } from "./audio.js";
-import { MAZE, POWERUP, LEVELS, applyLevelPreset } from "./constants.js";
+import { LEVELS, MAZE, POWERUP, applyLevelPreset } from "./constants.js";
 import { createLookControls } from "./controls.js";
+import { initEnemies } from "./enemies.js";
 import {
-  buildKeys,
-  buildWalls,
-  generateKeys,
-  generateMaze,
-  updateKeys,
+    buildKeys,
+    buildWalls,
+    generateKeys,
+    generateMaze,
+    updateKeys,
 } from "./maze.js";
 import { createMinimap } from "./minimap.js";
+import { AVATAR_HEIGHT, createPlayerAvatar } from "./player-avatar.js";
 import { Player } from "./player.js";
 import { initPowerups } from "./powerups.js";
-import { createScene } from "./scene.js";
+import { createScene, updateSkybox } from "./scene.js";
 import { createHUD } from "./ui.js";
 import { gridToWorld } from "./utils.js";
 import { initWeapons } from "./weapons.js";
-import { createPlayerAvatar, AVATAR_HEIGHT } from "./player-avatar.js";
-import { initEnemies } from "./enemies.js";
-import { updateSkybox } from "./scene.js";
 
 const { scene, renderer, camera } = createScene();
 const hud = createHUD();
@@ -263,36 +261,310 @@ if (terminateBtn) {
   });
 }
 
-// Maze + walls
-const maze = generateMaze();
-const { wallGroup, walls } = buildWalls(scene, maze);
+// Maze + walls (mutable so we can regenerate when changing levels)
+let maze = generateMaze();
+let wallGroup, walls;
+({ wallGroup, walls } = buildWalls(scene, maze));
 
 // Door
 const DOOR_COLOR = 0x46ff7a;
 const DOOR_EMISSIVE = 0x1bff66;
-const DOOR_W = MAZE.CELL * 0.9;
-const DOOR_H = MAZE.WALL_H * 0.9;
-const DOOR_T = MAZE.CELL * 0.2;
-const exitGX = maze[0].length - 2;
-const exitGY = maze.length - 2;
+// runtime door dims (updated when creating/updating the door)
+let doorW = MAZE.CELL * 0.9;
+let doorH = MAZE.WALL_H * 0.9;
+let doorT = MAZE.CELL * 0.2;
+let exitGX = maze[0].length - 2;
+let exitGY = maze.length - 2;
+let exitWorld = gridToWorld(exitGX, exitGY);
 
-const doorMat = new THREE.MeshStandardMaterial({
+// Door + beacon will be (re)created by helper so we can reposition/rebuild them
+let door = null;
+let doorAnimY = 0;
+let doorOpen = false;
+
+const doorMaterialParams = {
   color: DOOR_COLOR,
   emissive: DOOR_EMISSIVE,
   emissiveIntensity: 0.35,
-});
-const doorGeo = new THREE.BoxGeometry(DOOR_W, DOOR_H, DOOR_T);
-const door = new THREE.Mesh(doorGeo, doorMat);
-door.castShadow = true;
-const exitWorld = gridToWorld(exitGX, exitGY);
-door.position.set(
-  exitWorld.x,
-  DOOR_H / 2,
-  exitWorld.z + MAZE.CELL / 2 - DOOR_T / 2
-);
-scene.add(door);
-let doorOpen = false;
-let doorAnimY = door.position.y;
+};
+
+function createOrUpdateDoorAndBeacons() {
+  // Remove existing door if present
+  if (door) {
+    try {
+      scene.remove(door);
+      // dispose geometry/material to avoid leaking GPU memory
+      try {
+        if (door.geometry) door.geometry.dispose();
+        if (door.material) {
+          if (Array.isArray(door.material))
+            door.material.forEach((m) => m.dispose && m.dispose());
+          else door.material.dispose && door.material.dispose();
+        }
+      } catch (e) {}
+    } catch (e) {}
+    door = null;
+  }
+
+  // Recompute exit world location based on current maze
+  exitGX = maze[0].length - 2;
+  exitGY = maze.length - 2;
+  exitWorld = gridToWorld(exitGX, exitGY);
+
+  doorW = MAZE.CELL * 0.9;
+  doorH = MAZE.WALL_H * 0.9;
+  doorT = MAZE.CELL * 0.2;
+
+  const doorMat = new THREE.MeshStandardMaterial(doorMaterialParams);
+  const doorGeo = new THREE.BoxGeometry(doorW, doorH, doorT);
+  door = new THREE.Mesh(doorGeo, doorMat);
+  door.castShadow = true;
+  door.position.set(
+    exitWorld.x,
+    doorH / 2,
+    exitWorld.z + MAZE.CELL / 2 - doorT / 2
+  );
+  scene.add(door);
+  doorAnimY = door.position.y;
+
+  // Update beacons
+  exitBeacon.position.set(exitWorld.x, 6.5, exitWorld.z);
+  exitBeaconBase.position.set(exitWorld.x, 0.05, exitWorld.z);
+}
+
+async function regenerateMazeAndControllers() {
+  // Clear existing controllers (remove their meshes)
+  // Best-effort: remove any residual meshes from previous controllers so visuals
+  // don't linger. We do this before calling controllers' reset/dispose to be
+  // extra safe in case their reset implementations are incomplete.
+  try {
+    if (enemiesCtl?.enemies) {
+      for (const e of enemiesCtl.enemies.slice()) {
+        try {
+          scene.remove(e.mesh);
+        } catch (err) {}
+        try {
+          if (e.ui?.wrapper && e.ui.wrapper.parentElement)
+            e.ui.wrapper.parentElement.removeChild(e.ui.wrapper);
+        } catch (err) {}
+        try {
+          if (e.mesh?.geometry) e.mesh.geometry.dispose();
+          if (e.mesh?.material) {
+            if (Array.isArray(e.mesh.material))
+              e.mesh.material.forEach((m) => m && m.dispose && m.dispose());
+            else e.mesh.material.dispose && e.mesh.material.dispose();
+          }
+        } catch (err) {}
+      }
+    }
+  } catch (e) {
+    console.warn("Failed clearing enemy meshes:", e);
+  }
+  try {
+    if (weaponsCtl?.weapons) {
+      for (const w of weaponsCtl.weapons.slice()) {
+        try {
+          scene.remove(w.mesh);
+        } catch (err) {}
+        try {
+          if (w.mesh?.geometry) w.mesh.geometry.dispose();
+          if (w.mesh?.material) {
+            if (Array.isArray(w.mesh.material))
+              w.mesh.material.forEach((m) => m && m.dispose && m.dispose());
+            else w.mesh.material.dispose && w.mesh.material.dispose();
+          }
+        } catch (err) {}
+      }
+    }
+  } catch (e) {
+    console.warn("Failed clearing weapon meshes:", e);
+  }
+  try {
+    if (weaponsCtl?.projectiles) {
+      for (const p of weaponsCtl.projectiles.slice()) {
+        try {
+          scene.remove(p.mesh);
+        } catch (err) {}
+        try {
+          if (p.mesh?.geometry) p.mesh.geometry.dispose();
+          if (p.mesh?.material) p.mesh.material.dispose && p.mesh.material.dispose();
+        } catch (err) {}
+      }
+    }
+  } catch (e) {
+    console.warn("Failed clearing projectiles:", e);
+  }
+  try {
+    if (powerupsCtl?.powerups) {
+      for (const pu of powerupsCtl.powerups.slice()) {
+        try {
+          scene.remove(pu.mesh);
+        } catch (err) {}
+        try {
+          // powerup uses groups; dispose children geometries if present
+          pu.mesh.traverse((n) => {
+            if (n.isMesh) {
+              if (n.geometry) n.geometry.dispose();
+              if (n.material) {
+                if (Array.isArray(n.material)) n.material.forEach((m) => m && m.dispose && m.dispose());
+                else n.material.dispose && n.material.dispose();
+              }
+            }
+          });
+        } catch (err) {}
+      }
+    }
+  } catch (e) {
+    console.warn("Failed clearing powerup meshes:", e);
+  }
+
+  // Now call existing reset/clear hooks so controllers can tidy up internal state
+  try {
+    enemiesCtl?.reset();
+  } catch (e) {
+    console.warn("enemiesCtl.reset failed:", e);
+  }
+  try {
+    weaponsCtl?.reset(player);
+  } catch (e) {
+    console.warn("weaponsCtl.reset failed:", e);
+  }
+  try {
+    powerupsCtl?.reset(player);
+  } catch (e) {
+    console.warn("powerupsCtl.reset failed:", e);
+  }
+
+  // Remove old walls group from scene
+  if (wallGroup) {
+    try {
+      // remove and dispose meshes inside the old wallGroup
+      try {
+        wallGroup.traverse((c) => {
+          if (c.isMesh) {
+            if (c.geometry) c.geometry.dispose();
+            if (c.material) {
+              if (Array.isArray(c.material))
+                c.material.forEach((m) => m.dispose && m.dispose());
+              else c.material.dispose && c.material.dispose();
+            }
+          }
+        });
+      } catch (e) {}
+      scene.remove(wallGroup);
+    } catch (e) {}
+    wallGroup = null;
+    walls = null;
+  }
+
+  // Remove any existing key meshes (they can linger visually)
+  try {
+    if (keyMeshes && keyMeshes.length) {
+      for (const km of keyMeshes) {
+        try {
+          scene.remove(km.mesh);
+          if (km.mesh.geometry) km.mesh.geometry.dispose();
+          if (km.mesh.material) {
+            if (Array.isArray(km.mesh.material))
+              km.mesh.material.forEach((m) => m.dispose && m.dispose());
+            else km.mesh.material.dispose && km.mesh.material.dispose();
+          }
+        } catch (e) {}
+      }
+    }
+  } catch (e) {}
+  keyMeshes = [];
+
+  // Generate a fresh maze using the (possibly updated) MAZE constants
+  maze = generateMaze();
+
+  // Build walls for the new maze
+  ({ wallGroup, walls } = buildWalls(scene, maze));
+
+  // Recreate door + beacons (needs current maze)
+  createOrUpdateDoorAndBeacons();
+
+  // Recreate player instance so internal caches are cleared and the player uses
+  // the newly-generated walls. This makes the level behave like a fresh game.
+  try {
+    // Dispose previous player's input listeners to prevent duplicates across levels
+    try { player?.dispose?.(); } catch (e) {}
+    player = new Player(camera, walls, look, hud);
+    player.setHealth(100);
+    player.resetToStart(1, 1, door.position);
+    playerPositionForCam.copy(camera.position);
+    wasGrounded = player.grounded;
+  } catch (e) {
+    console.warn("Failed to recreate player during regeneration:", e);
+  }
+
+  // Re-init controllers tied to the maze/walls (they capture walls/maze in closure)
+  // Dispose previous controllers if they expose a dispose method
+  try {
+    enemiesCtl?.dispose?.();
+  } catch (e) {}
+  try {
+    powerupsCtl?.dispose?.();
+  } catch (e) {}
+  try {
+    weaponsCtl?.dispose?.();
+  } catch (e) {}
+
+  enemiesCtl = initEnemies(
+    scene,
+    camera,
+    wallGroup,
+    walls,
+    maze,
+    onPlayerDamage,
+    enemyModel
+  );
+  powerupsCtl = initPowerups(scene, maze, enemiesCtl);
+  weaponsCtl = initWeapons(scene, maze, walls, enemiesCtl, hud, camera);
+
+  // Recreate minimap for the new maze
+  // dispose old minimap if it exposes a dispose method
+  try {
+    minimap?.dispose?.();
+  } catch (e) {}
+  minimap = createMinimap(
+    maze,
+    door,
+    enemiesCtl.enemies,
+    powerupsCtl.powerups,
+    weaponsCtl.weapons,
+    camera,
+    look,
+    powerupsCtl.getCompassState
+  );
+
+  // If the player already exists (we're regenerating mid-session), populate scatter lists
+  // so pickups/weapons are immediately present and usable.
+  if (typeof player !== "undefined" && player) {
+    try {
+      powerupsCtl.reset(player);
+    } catch (e) {
+      console.warn("powerupsCtl.reset failed during regeneration:", e);
+    }
+    try {
+      weaponsCtl.reset(player);
+    } catch (e) {
+      console.warn("weaponsCtl.reset failed during regeneration:", e);
+    }
+    try {
+      enemiesCtl.reset();
+    } catch (e) {
+      console.warn("enemiesCtl.reset failed during regeneration:", e);
+    }
+  }
+
+  // Recreate third-person camera so it doesn't hold stale wall references
+  try {
+    thirdPersonCam = createThirdPersonCamera(camera, playerPositionForCam);
+  } catch (e) {
+    console.warn("Failed to recreate thirdPersonCam during regeneration:", e);
+  }
+}
 
 const exitBeacon = new THREE.Mesh(
   new THREE.CylinderGeometry(1.4, 1.4, 12, 24, 1, true),
@@ -324,8 +596,11 @@ exitBeaconBase.position.set(exitWorld.x, 0.05, exitWorld.z);
 exitBeaconBase.visible = false;
 scene.add(exitBeaconBase);
 
-// Player
-const player = new Player(camera, walls, look, hud);
+// Create door/beacons now that beacon objects exist and the helper is declared
+createOrUpdateDoorAndBeacons();
+
+// Player (use let so we can recreate the Player instance on level resets)
+let player = new Player(camera, walls, look, hud);
 player.setHealth(100);
 player.resetToStart(1, 1, door.position);
 // Initialize our position tracker
@@ -437,7 +712,7 @@ async function resetGame() {
   }
   hud.updateKeys(0, NUM_KEYS);
   window.keyMeshes = keyMeshes;
-  door.position.y = DOOR_H / 2;
+  door.position.y = doorH / 2;
   doorOpen = false;
   doorAnimY = door.position.y;
   exitBeacon.visible = false;
@@ -502,6 +777,17 @@ addEventListener("mousedown", (e) => {
     document.pointerLockElement !== renderer.domElement
   )
     return;
+  // Debug: log weapon state to help diagnose why firing might be ignored after regen
+  try {
+    console.debug("mousedown: weaponsCtl:", {
+      exists: !!weaponsCtl,
+      isEquipped: weaponsCtl?.isEquipped?.() ?? null,
+      equipped: weaponsCtl?.equipped ?? null,
+    });
+  } catch (err) {
+    console.warn("weapons debug failed:", err);
+  }
+
   const handled = weaponsCtl?.fire(enemiesCtl);
   if (!handled) {
     if (!weaponsCtl.isEquipped()) {
@@ -704,21 +990,21 @@ async function startGame() {
     if (
       !doorOpen &&
       player.hasAllKeys(NUM_KEYS) &&
-      Math.abs(camera.position.x - door.position.x) < DOOR_W / 2 &&
+      Math.abs(camera.position.x - door.position.x) < doorW / 2 &&
       Math.abs(camera.position.z - door.position.z) < MAZE.CELL / 2
     ) {
       doorOpen = true;
     }
-    if (doorOpen && door.position.y < MAZE.WALL_H + DOOR_H / 2) {
+    if (doorOpen && door.position.y < MAZE.WALL_H + doorH / 2) {
       doorAnimY += dt * MAZE.WALL_H * 2;
-      door.position.y = Math.min(doorAnimY, MAZE.WALL_H + DOOR_H / 2);
+      door.position.y = Math.min(doorAnimY, MAZE.WALL_H + doorH / 2);
     }
 
     // Win logic
     if (
       !won &&
       doorOpen &&
-      Math.abs(camera.position.x - door.position.x) < DOOR_W / 2 &&
+      Math.abs(camera.position.x - door.position.x) < doorW / 2 &&
       Math.abs(camera.position.z - door.position.z) < MAZE.CELL / 2
     ) {
       try {
@@ -755,6 +1041,9 @@ async function startGame() {
               if (levelPreset && levelPreset.skybox) {
                 updateSkybox(scene, levelPreset.skybox);
               }
+
+              // Re-generate the maze and re-init controllers for the new level
+              await regenerateMazeAndControllers();
 
               // Update HUD with new level
               hud.updateLevel?.(currentLevel, LEVELS[currentLevel - 1]?.name);

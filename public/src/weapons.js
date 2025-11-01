@@ -208,6 +208,24 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
     function clearModel() {
       if (slot) { anim.remove(slot); slot = null; }
     }
+    function disposeVm() {
+      try {
+        clearModel();
+        if (root.parent) root.parent.remove(root);
+        // dispose any geometries/materials under root to avoid GPU leaks
+        root.traverse((n) => {
+          if (n.isMesh) {
+            try { n.geometry && n.geometry.dispose && n.geometry.dispose(); } catch (e) {}
+            try {
+              if (n.material) {
+                if (Array.isArray(n.material)) n.material.forEach((m) => m && m.dispose && m.dispose());
+                else n.material.dispose && n.material.dispose();
+              }
+            } catch (e) {}
+          }
+        });
+      } catch (e) {}
+    }
 
     // Recoil / slash spring state (applied to 'anim' transform)
     const recoil = { z: 0, vz: 0, x: 0, vx: 0, rotX: 0, vrotX: 0 };
@@ -263,7 +281,7 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
       }
     }
 
-    return { setModelFrom, clearModel, playRecoil, playSlash, tick };
+    return { setModelFrom, clearModel, playRecoil, playSlash, tick, root, disposeVm };
   })();
 
   // ====== EXISTING WORLD-WEAPON SYSTEM ======
@@ -422,6 +440,7 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
     }
   }
   addEventListener("keydown", onKey);
+  const onKeyRef = onKey; // keep reference for removal
 
   const avatar = playerModel?.userData;
 
@@ -655,5 +674,17 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
   // initial scatter
   scatter();
 
-  return { weapons, projectiles, update, reset, fire, dropEquipped, isEquipped };
+  function dispose() {
+    // remove global key listener to avoid duplicates across re-inits
+    try { removeEventListener("keydown", onKeyRef); } catch (e) {}
+    // remove FPS viewmodel group from camera and dispose its assets
+    try { vm.disposeVm && vm.disposeVm(); } catch (e) {}
+    // remove world weapon meshes and projectiles from the scene
+    try { for (const w of weapons) scene.remove(w.mesh); } catch (e) {}
+    try { for (const p of projectiles) scene.remove(p.mesh); } catch (e) {}
+    weapons.length = 0;
+    projectiles.length = 0;
+  }
+
+  return { weapons, projectiles, update, reset, fire, dropEquipped, isEquipped, dispose };
 }
