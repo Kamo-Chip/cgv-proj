@@ -87,8 +87,8 @@ export const LEVELS = [
   {
     // Level 1: Easy - few enemies, more powerups
     name: "Level 1",
-    ENEMY: { TARGET_COUNT: 8, SPEED: 2.0, RAM_DAMAGE: 5 },
-    POWERUP: { COUNT: 10 },
+    ENEMY: { TARGET_COUNT: 6, SPEED: 2.0, RAM_DAMAGE: 5 },
+    POWERUP: { COUNT: 8 },
     MOVE: { MAX_SPEED: 18 },
     MAZE: { W: 11, H: 11 },
     skybox: [
@@ -103,8 +103,8 @@ export const LEVELS = [
   {
     // Level 2: Medium
     name: "Level 2",
-    ENEMY: { TARGET_COUNT: 12, SPEED: 2.5, RAM_DAMAGE: 8 },
-    POWERUP: { COUNT: 8 },
+    ENEMY: { TARGET_COUNT: 8, SPEED: 2.2, RAM_DAMAGE: 7 },
+    POWERUP: { COUNT: 10 },
     MOVE: { MAX_SPEED: 20 },
     MAZE: { W: 15, H: 15 },
     skybox: [
@@ -119,8 +119,8 @@ export const LEVELS = [
   {
     // Level 3: Hard
     name: "Level 3",
-    ENEMY: { TARGET_COUNT: 15, SPEED: 2.5, RAM_DAMAGE: 10 },
-    POWERUP: { COUNT: 10 },
+    ENEMY: { TARGET_COUNT: 10, SPEED: 2.2, RAM_DAMAGE: 9 },
+    POWERUP: { COUNT: 12 },
     MOVE: { MAX_SPEED: 20 },
     MAZE: { W: 19, H: 19 },
     skybox: [
