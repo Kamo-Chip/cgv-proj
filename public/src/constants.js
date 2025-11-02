@@ -87,7 +87,7 @@ export const LEVELS = [
   {
     // Level 1: Easy - few enemies, more powerups
     name: "Level 1",
-    ENEMY: { TARGET_COUNT: 0, SPEED: 2.0, RAM_DAMAGE: 5 },
+    ENEMY: { TARGET_COUNT: 8, SPEED: 2.0, RAM_DAMAGE: 5 },
     POWERUP: { COUNT: 10 },
     MOVE: { MAX_SPEED: 18 },
     MAZE: { W: 11, H: 11 },

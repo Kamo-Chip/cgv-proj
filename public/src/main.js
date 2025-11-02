@@ -731,7 +731,7 @@ document.addEventListener("pointerlockchange", () => {
     // Start or resume background music when gameplay is active
     if (!won && !lost) {
       try {
-        audio.playMusic?.("bg_music", { volume: 0, loop: true, fade: 0.6 });
+        audio.playMusic?.("bg_music", { volume: 0.1, loop: true, fade: 0.6 });
       } catch (e) {
         console.warn("Failed to start background music:", e);
       }
