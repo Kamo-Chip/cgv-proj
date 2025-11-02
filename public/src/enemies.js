@@ -553,9 +553,9 @@ export function initEnemies(
       removeEnemyUi(e);
     }
     enemies.length = 0;
-    for (let i = 0; i < ENEMY.TARGET_COUNT; i++) spawnEnemy();
-    timeSinceReplan = ENEMY.REPLAN_DT;
-    fireTimer = 0;
+    // for (let i = 0; i < ENEMY.TARGET_COUNT; i++) spawnEnemy();
+    // timeSinceReplan = ENEMY.REPLAN_DT;
+    // fireTimer = 0;
   }
 
   function ensureQuota() {

@@ -11,6 +11,15 @@ export class AudioManager {
 
     this.buffers = new Map();
     this.enabled = true;
+
+    // Music control
+    this._music = {
+      name: null,
+      src: null,
+      gainNode: null,
+      baseVolume: 1.0,
+      muted: false,
+    };
   }
 
   async init() {
@@ -111,6 +120,77 @@ export class AudioManager {
   setMusicVolume(v) {
     if (!this.musicGain) return;
     this.musicGain.gain.value = v;
+  }
+
+  // --- Music helpers ---
+  _fadeGain(gainNode, to, seconds = 0.3) {
+    if (!this.ctx || !gainNode) return;
+    const now = this.ctx.currentTime;
+    try {
+      gainNode.gain.cancelScheduledValues(now);
+      gainNode.gain.setValueAtTime(gainNode.gain.value, now);
+      gainNode.gain.linearRampToValueAtTime(Math.max(0, to), now + Math.max(0, seconds));
+    } catch (e) {
+      // fallback without scheduler
+      gainNode.gain.value = to;
+    }
+  }
+
+  stopMusic({ fade = 0.25 } = {}) {
+    if (!this._music.src) return;
+    const src = this._music.src;
+    const gainNode = this._music.gainNode;
+    if (gainNode && fade > 0) this._fadeGain(gainNode, 0, fade);
+    try {
+      // Stop slightly after fade to avoid click
+      const when = this.ctx ? this.ctx.currentTime + Math.max(0, fade) + 0.01 : 0;
+      src.stop(when);
+    } catch (e) {
+      try { src.stop(); } catch (_) {}
+    }
+    this._music.name = null;
+    this._music.src = null;
+    this._music.gainNode = null;
+  }
+
+  muteMusic(muted, { fade = 0.2 } = {}) {
+    this._music.muted = !!muted;
+    if (!this._music.gainNode) return;
+    const target = muted ? 0 : this._music.baseVolume;
+    this._fadeGain(this._music.gainNode, target, fade);
+  }
+
+  playMusic(name, { volume = 0.6, loop = true, fade = 0.4 } = {}) {
+    if (!this.enabled || !this.ctx || !this.buffers.has(name)) return;
+
+    // If same track is already playing, just unmute/fade to volume
+    if (this._music.name === name && this._music.src) {
+      this._music.baseVolume = volume;
+      if (this._music.gainNode) this._fadeGain(this._music.gainNode, volume, fade);
+      this._music.muted = false;
+      return this._music.src;
+    }
+
+    // Otherwise stop any existing music and start new one
+    if (this._music.src) this.stopMusic({ fade: Math.min(fade, 0.2) });
+
+    const buffer = this.buffers.get(name);
+    const { src, gain } = this._createSource(buffer, this.musicGain);
+    src.loop = loop;
+    // start from silent and fade in
+    gain.gain.value = 0.0001;
+    try { src.start(); } catch (e) { /* ignore */ }
+    this._fadeGain(gain, volume, fade);
+
+    this._music = {
+      name,
+      src,
+      gainNode: gain,
+      baseVolume: volume,
+      muted: false,
+    };
+
+    return src;
   }
 
   suspend() {

@@ -13,7 +13,7 @@ const WeaponTypes = {
     color: 0x9fbfff,
     emissive: 0x2a49ff,
     kind: "projectile",
-    ammoCap: 500,
+    ammoCap: 12,
     damage: 25,
     projectileSpeed: 30,
     projectileRadius: 0.12,
@@ -27,7 +27,7 @@ const WeaponTypes = {
     emissive: 0xffc94a,
     kind: "melee",
     ammoCap: Infinity,
-    damage: 40,
+    damage: 33,
     meleeRange: 1.0,
     hudName: "Knife",
   },
@@ -54,12 +54,12 @@ class WorldWeapon {
     // can interact with it right away. The GLTF model will be loaded
     // asynchronously and inserted into this group when available.
     const w = gridToWorld(gx, gy);
-  const group = new THREE.Group();
+    const group = new THREE.Group();
     group.position.set(w.x, 0.45, w.z);
     // keep the same base orientation as before (lay flat)
     group.rotation.x = 0;
-  group.userData.typeId = type.id;
-  group.userData.createAvatarAttachment = null;
+    group.userData.typeId = type.id;
+    group.userData.createAvatarAttachment = null;
 
     // Attempt to load a GLTF for this weapon. Expect files at ./models/weapons/<id>.glb
     const loader = new GLTFLoader();
@@ -145,7 +145,15 @@ class WorldWeapon {
   }
 }
 
-export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerModel) {
+export function initWeapons(
+  scene,
+  maze,
+  walls,
+  enemiesCtl,
+  hud,
+  camera,
+  playerModel
+) {
   // ====== VIEWMODEL (attached to camera; reuses your existing meshes) ======
   const vm = (() => {
     const root = new THREE.Group();
@@ -182,8 +190,14 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
      * @param {THREE.Object3D} sourceMesh - existing world mesh (with textures).
      * @param {{forwardAxis?: 'x'|'z', scale?: number}} opts
      */
-    function setModelFrom(sourceMesh, { forwardAxis = "x", scale = 1.35 } = {}) {
-      if (slot) { anim.remove(slot); slot = null; }
+    function setModelFrom(
+      sourceMesh,
+      { forwardAxis = "x", scale = 1.35 } = {}
+    ) {
+      if (slot) {
+        anim.remove(slot);
+        slot = null;
+      }
       // deep clone (preserve materials, textures, children)
       slot = sourceMesh.clone(true);
 
@@ -206,7 +220,10 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
     }
 
     function clearModel() {
-      if (slot) { anim.remove(slot); slot = null; }
+      if (slot) {
+        anim.remove(slot);
+        slot = null;
+      }
     }
     function disposeVm() {
       try {
@@ -215,10 +232,13 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
         // dispose any geometries/materials under root to avoid GPU leaks
         root.traverse((n) => {
           if (n.isMesh) {
-            try { n.geometry && n.geometry.dispose && n.geometry.dispose(); } catch (e) {}
+            try {
+              n.geometry && n.geometry.dispose && n.geometry.dispose();
+            } catch (e) {}
             try {
               if (n.material) {
-                if (Array.isArray(n.material)) n.material.forEach((m) => m && m.dispose && m.dispose());
+                if (Array.isArray(n.material))
+                  n.material.forEach((m) => m && m.dispose && m.dispose());
                 else n.material.dispose && n.material.dispose();
               }
             } catch (e) {}
@@ -229,12 +249,12 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
 
     // Recoil / slash spring state (applied to 'anim' transform)
     const recoil = { z: 0, vz: 0, x: 0, vx: 0, rotX: 0, vrotX: 0 };
-    const slash  = { t: 0, active: false, dur: 0.18, dir: 1 };
+    const slash = { t: 0, active: false, dur: 0.18, dir: 1 };
 
     function playRecoil() {
-      recoil.vz    -= 2.6;                     // kick back
-      recoil.vrotX -= 8.0 * (Math.PI / 180);   // slight tilt
-      recoil.vx    += (Math.random() - 0.5) * 0.02;
+      recoil.vz -= 2.6; // kick back
+      recoil.vrotX -= 8.0 * (Math.PI / 180); // slight tilt
+      recoil.vx += (Math.random() - 0.5) * 0.02;
     }
 
     function playSlash() {
@@ -245,17 +265,19 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
 
     function tick(dt) {
       // Spring back to rest
-      const kPos = 28, dPos = 10;
-      const kRot = 40, dRot = 12;
+      const kPos = 28,
+        dPos = 10;
+      const kRot = 40,
+        dRot = 12;
 
-      recoil.vz    += (-kPos * recoil.z    - dPos * recoil.vz)    * dt;
-      recoil.z     += recoil.vz * dt;
+      recoil.vz += (-kPos * recoil.z - dPos * recoil.vz) * dt;
+      recoil.z += recoil.vz * dt;
 
-      recoil.vx    += (-kPos * recoil.x    - dPos * recoil.vx)    * dt;
-      recoil.x     += recoil.vx * dt;
+      recoil.vx += (-kPos * recoil.x - dPos * recoil.vx) * dt;
+      recoil.x += recoil.vx * dt;
 
       recoil.vrotX += (-kRot * recoil.rotX - dRot * recoil.vrotX) * dt;
-      recoil.rotX  += recoil.vrotX * dt;
+      recoil.rotX += recoil.vrotX * dt;
 
       anim.position.set(recoil.x, 0, recoil.z);
       anim.rotation.x = recoil.rotX;
@@ -264,13 +286,14 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
       if (slash.active) {
         slash.t += dt;
         const t = Math.min(1, slash.t / slash.dur);
-        const e = t < 0.5 ? (2 * t * t) : (1 - Math.pow(-2 * t + 2, 2) / 2); // ease in-out
+        const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // ease in-out
 
         anim.position.x = recoil.x + 0.06 + 0.08 * e * slash.dir;
-        anim.position.y = 0.00 + 0.05 * e;
+        anim.position.y = 0.0 + 0.05 * e;
         anim.position.z = recoil.z - 0.06 * e;
-        anim.rotation.z = ( -25 * Math.PI/180 ) + (60 * Math.PI/180) * e * slash.dir;
-        anim.rotation.x = recoil.rotX + ( -8 * Math.PI/180 ) * e;
+        anim.rotation.z =
+          (-25 * Math.PI) / 180 + ((60 * Math.PI) / 180) * e * slash.dir;
+        anim.rotation.x = recoil.rotX + ((-8 * Math.PI) / 180) * e;
 
         if (slash.t >= slash.dur) {
           slash.active = false;
@@ -281,7 +304,15 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
       }
     }
 
-    return { setModelFrom, clearModel, playRecoil, playSlash, tick, root, disposeVm };
+    return {
+      setModelFrom,
+      clearModel,
+      playRecoil,
+      playSlash,
+      tick,
+      root,
+      disposeVm,
+    };
   })();
 
   // ====== EXISTING WORLD-WEAPON SYSTEM ======
@@ -298,7 +329,8 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
     for (const w of weapons) scene.remove(w.mesh);
     weapons.length = 0;
 
-    const H = maze.length, W = maze[0].length;
+    const H = maze.length,
+      W = maze[0].length;
     const cells = [];
     for (let y = 1; y < H - 1; y++)
       for (let x = 1; x < W - 1; x++)
@@ -597,18 +629,18 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
         if (enemy) {
           try {
             // Play the metal hit sound
-            audio.play("metal_hit", { volume: 0.7}); // Adjust volume as needed
+            audio.play("metal_hit", { volume: 0.7 }); // Adjust volume as needed
           } catch (e) {
             console.error("Failed to play metal_hit sound:", e);
           }
-         if (typeof enemiesCtl.applyDamage === "function") {
-          enemiesCtl.applyDamage(enemy, p.dmg);
-        } else {
-          // Fallback just in case (but the function should be there)
-          enemy.hp -= p.dmg;
-          enemy.hitFlash = 1.0; 
-          if (enemy.hp <= 0 && !enemy.dead) enemy.dead = true;
-        }
+          if (typeof enemiesCtl.applyDamage === "function") {
+            enemiesCtl.applyDamage(enemy, p.dmg);
+          } else {
+            // Fallback just in case (but the function should be there)
+            enemy.hp -= p.dmg;
+            enemy.hitFlash = 1.0;
+            if (enemy.hp <= 0 && !enemy.dead) enemy.dead = true;
+          }
         }
 
         // remove projectile
@@ -665,26 +697,43 @@ export function initWeapons(scene, maze, walls, enemiesCtl, hud, camera, playerM
     projectiles.length = 0;
     equipped.weapon = null;
     equipped.ammo = 0;
-    scatter();
     vm.clearModel();
     avatar?.clearAllWeapons?.();
+    scatter();
     if (hud?.updateWeapon) hud.updateWeapon(equipped);
   }
 
   // initial scatter
-  scatter();
+//   scatter();
 
   function dispose() {
     // remove global key listener to avoid duplicates across re-inits
-    try { removeEventListener("keydown", onKeyRef); } catch (e) {}
+    try {
+      removeEventListener("keydown", onKeyRef);
+    } catch (e) {}
     // remove FPS viewmodel group from camera and dispose its assets
-    try { vm.disposeVm && vm.disposeVm(); } catch (e) {}
+    try {
+      vm.disposeVm && vm.disposeVm();
+    } catch (e) {}
     // remove world weapon meshes and projectiles from the scene
-    try { for (const w of weapons) scene.remove(w.mesh); } catch (e) {}
-    try { for (const p of projectiles) scene.remove(p.mesh); } catch (e) {}
+    try {
+      for (const w of weapons) scene.remove(w.mesh);
+    } catch (e) {}
+    try {
+      for (const p of projectiles) scene.remove(p.mesh);
+    } catch (e) {}
     weapons.length = 0;
     projectiles.length = 0;
   }
 
-  return { weapons, projectiles, update, reset, fire, dropEquipped, isEquipped, dispose };
+  return {
+    weapons,
+    projectiles,
+    update,
+    reset,
+    fire,
+    dropEquipped,
+    isEquipped,
+    dispose,
+  };
 }

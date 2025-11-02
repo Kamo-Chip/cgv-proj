@@ -15,7 +15,7 @@ export class Player {
     this.yOffset = 0;
     this.grounded = true;
 
-    this.GRAVITY = MOVE.BASE_GRAVITY;
+    this.GRAVITY = MOVE.BASE_GRAVITY
     this.JUMP_V = MOVE.BASE_JUMP_V;
 
     this.health = 100;

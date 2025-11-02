@@ -157,8 +157,8 @@ export function createHUD() {
 
   function updateLevel(level = 1, name = "") {
     if (!levelDisplay) return;
-    const nm = name ? ` — ${name}` : "";
-    levelDisplay.textContent = `Level ${level}${nm}`;
+    const nm = name ? `${name}` : "";
+    levelDisplay.textContent = `${nm}`;
   }
   
 

@@ -121,6 +121,7 @@ class Powerup {
     this.gy = gy;
     this.taken = false;
     this.mesh = this._createMesh(type, gx, gy);
+    this.disposed = false;
     scene.add(this.mesh);
   }
   _createMesh(type, gx, gy) {
@@ -166,6 +167,7 @@ class Powerup {
       modelPath,
       (gltf) => {
         try {
+          if (this.disposed || !group.parent) return;
           const model = gltf.scene.clone();
 
           // Normalize model size to fit roughly the same footprint as previous geometry
@@ -206,6 +208,11 @@ class Powerup {
     );
 
     return group;
+  }
+
+  dispose(scene) {
+    this.disposed = true;
+    if (this.mesh && scene) scene.remove(this.mesh);
   }
 }
 
@@ -260,7 +267,8 @@ export function initPowerups(scene, maze, enemiesCtl) {
       name,
       weight: def.spawnWeight ?? 1,
     }));
-    const totalWeight = typeEntries.reduce((sum, entry) => sum + entry.weight, 0) || 1;
+    const totalWeight =
+      typeEntries.reduce((sum, entry) => sum + entry.weight, 0) || 1;
 
     const pickTypeName = () => {
       const r = Math.random() * totalWeight;
@@ -280,16 +288,17 @@ export function initPowerups(scene, maze, enemiesCtl) {
       );
       if (!ok) continue;
       chosen.push(c);
-      const typeName = guaranteeCompass
-        ? "compass"
-        : pickTypeName();
+      const typeName = guaranteeCompass ? "compass" : pickTypeName();
       guaranteeCompass = false;
       const powerupType = PowerupTypes[typeName] ?? PowerupTypes.jump;
       powerups.push(new Powerup(powerupType, c.x, c.y, scene));
       placed++;
     }
 
-    if (!powerups.some((p) => p.mesh.userData?.kind === "compass") && powerups.length) {
+    if (
+      !powerups.some((p) => p.mesh.userData?.kind === "compass") &&
+      powerups.length
+    ) {
       const target = powerups[0];
       const { gx, gy } = target;
       scene.remove(target.mesh);
@@ -317,9 +326,10 @@ export function initPowerups(scene, maze, enemiesCtl) {
       // vertical tolerance (so you can't pick up while mid-air)
       const VERT_TOL = POWERUP.VERTICAL_PICKUP_TOL ?? 0.6;
 
-      const playerGrounded = (player && typeof player.isGrounded === "boolean")
-        ? player.isGrounded
-        : Math.abs(camera.position.y - p.mesh.position.y) <= VERT_TOL;
+      const playerGrounded =
+        player && typeof player.isGrounded === "boolean"
+          ? player.isGrounded
+          : Math.abs(camera.position.y - p.mesh.position.y) <= VERT_TOL;
 
       const dy = Math.abs(camera.position.y - p.mesh.position.y);
 
@@ -374,6 +384,15 @@ export function initPowerups(scene, maze, enemiesCtl) {
       if (type.hud) type.hud.show(type.duration);
     }
   }
+
+  function dispose(scene) {
+    for (const p of powerups) {
+      p.disposed = true;
+      scene.remove(p.mesh);
+    }
+    powerups.length = 0;
+  }
+  
   function reset(player) {
     for (const a of active) {
       a.type.clear(player, {
@@ -390,6 +409,7 @@ export function initPowerups(scene, maze, enemiesCtl) {
   return {
     powerups,
     update,
+    dispose,
     reset,
     scatter,
     getCompassState: () => compassState,

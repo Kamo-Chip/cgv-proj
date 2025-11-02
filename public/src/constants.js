@@ -49,6 +49,7 @@ export const ENEMY = {
   RAM_COOLDOWN_TIME: 0.4,
   RAM_CHARGE_SPEED: 3.0,
   RAM_BACKOFF_SPEED: 1.4,
+  RAM_DAMAGE: 5,
 };
 
 export const COMBAT = {
@@ -59,7 +60,7 @@ export const COMBAT = {
 
 export const POWERUP = {
   COUNT: 10,
-  DURATION: 100,
+  DURATION: 15,
   JUMP_MULT: 2,
   GRAVITY_MULT: 0.3,
   PICKUP_RADIUS: 0.6,
@@ -68,7 +69,7 @@ export const POWERUP = {
 };
 
 export const WEAPON = {
-  COUNT: 5,
+  COUNT: 4,
   PICKUP_RADIUS: 1.0,
   SPAWN_MIN_DIST: MAZE.CELL * 4,
   SEPARATION_DIST: MAZE.CELL * 2.2,
@@ -86,7 +87,7 @@ export const LEVELS = [
   {
     // Level 1: Easy - few enemies, more powerups
     name: "Level 1",
-    ENEMY: { TARGET_COUNT: 5, SPEED: 1.4 },
+    ENEMY: { TARGET_COUNT: 0, SPEED: 2.0, RAM_DAMAGE: 5 },
     POWERUP: { COUNT: 10 },
     MOVE: { MAX_SPEED: 18 },
     MAZE: { W: 11, H: 11 },
@@ -102,8 +103,8 @@ export const LEVELS = [
   {
     // Level 2: Medium
     name: "Level 2",
-    ENEMY: { TARGET_COUNT: 10, SPEED: 1.8 },
-    POWERUP: { COUNT: 12 },
+    ENEMY: { TARGET_COUNT: 12, SPEED: 2.5, RAM_DAMAGE: 8 },
+    POWERUP: { COUNT: 8 },
     MOVE: { MAX_SPEED: 20 },
     MAZE: { W: 15, H: 15 },
     skybox: [
@@ -118,9 +119,9 @@ export const LEVELS = [
   {
     // Level 3: Hard
     name: "Level 3",
-    ENEMY: { TARGET_COUNT: 12, SPEED: 2.2 },
-    POWERUP: { COUNT: 6 },
-    MOVE: { MAX_SPEED: 22 },
+    ENEMY: { TARGET_COUNT: 15, SPEED: 2.5, RAM_DAMAGE: 10 },
+    POWERUP: { COUNT: 10 },
+    MOVE: { MAX_SPEED: 20 },
     MAZE: { W: 19, H: 19 },
     skybox: [
       "./skybox/space_ft.png",

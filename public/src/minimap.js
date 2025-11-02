@@ -19,6 +19,56 @@ export function createMinimap(
   canvas.height = maze.length * TILE + PAD * 2;
   const mm = canvas.getContext("2d");
 
+  // Helper to draw a tiny key icon centered at (x, y)
+  function drawKeyIcon(ctx, x, y, tileSize, {
+    fill = "#00a6ffff",
+    stroke = "#167d94ff",
+    glow = true,
+  } = {}) {
+    const S = Math.max(8, tileSize * 0.95); // overall size clamp
+    const r = S * 0.22; // ring radius
+    const shankL = S * 0.55; // shank length
+    const shankH = Math.max(2, S * 0.12); // shank thickness
+    const toothW = Math.max(2, S * 0.16);
+    const toothH = Math.max(2, S * 0.18);
+
+    ctx.save();
+    if (glow) {
+      ctx.shadowColor = fill;
+      ctx.shadowBlur = 6;
+    }
+
+    // Bow (ring)
+    ctx.beginPath();
+    ctx.arc(x - S * 0.25, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.lineWidth = Math.max(1, S * 0.06);
+    ctx.strokeStyle = stroke;
+    ctx.stroke();
+
+    // Shank
+    const sx = x - S * 0.02;
+    const sy = y - shankH / 2;
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = Math.max(1, S * 0.06);
+    ctx.beginPath();
+    ctx.rect(sx, sy, shankL, shankH);
+    ctx.fill();
+    ctx.stroke();
+
+    // Teeth (two notches at the far end)
+    const tx = sx + shankL - toothW;
+    ctx.beginPath();
+    ctx.rect(tx, y - shankH / 2 - toothH * 0.2, toothW, toothH);
+    ctx.rect(tx - toothW * 0.85, y - shankH / 2 + toothH * 0.05, toothW, toothH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
   function draw() {
     const width = canvas.width,
       height = canvas.height;
@@ -115,16 +165,15 @@ export function createMinimap(
       }
     }
 
-    // keys (if you wire them in)
+    // keys (if wired in) — draw a key icon instead of a square
     if (window.keyMeshes?.length) {
-      mm.fillStyle = "#ffff00"; // bright yellow for keys
       for (const k of window.keyMeshes) {
         const w = k.mesh.position;
         const pg = worldToGrid(w.x, w.z);
         const cx = PAD + (pg.gx + 0.5) * TILE;
         const cy = PAD + (pg.gy + 0.5) * TILE;
         if ((cx - px) ** 2 + (cy - py) ** 2 > R * R) continue;
-        mm.fillRect(cx - TILE * 0.2, cy - TILE * 0.2, TILE * 0.4, TILE * 0.4);
+        drawKeyIcon(mm, cx, cy, TILE, { fill: "#00a6ffff", stroke: "#167d94ff" });
       }
     }
 

@@ -88,6 +88,8 @@ hud.updateLevel?.(currentLevel, LEVELS[currentLevel - 1]?.name);
       intro_cinematic:
         "./sounds/Cinematic Whoosh - Sound Effect (Final Cut).mp3",
       metal_hit: "./sounds/metal_hit.wav",
+      // Placeholder background music. Replace this file with a looping track for better effect.
+      bg_music: "./sounds/bg_music.mp3",
     });
   } catch (e) {
     console.warn("Audio load failed (ok for dev):", e);
@@ -254,6 +256,8 @@ if (terminateBtn) {
       hud.updateLevel?.(currentLevel, LEVELS[currentLevel - 1]?.name);
       await resetGame();
       openMenuOverlay({ allowResume: false });
+      // Ensure background music is stopped when returning to main menu
+      try { audio.stopMusic?.({ fade: 0.3 }); } catch (e) {}
       initiateBtn && (initiateBtn.disabled = false);
     } finally {
       terminateBtn.disabled = false;
@@ -332,6 +336,50 @@ function createOrUpdateDoorAndBeacons() {
   exitBeaconBase.position.set(exitWorld.x, 0.05, exitWorld.z);
 }
 
+// ---------------- Cleanup helpers (Three.js + DOM) ----------------
+function disposeMaterial(mat) {
+  try {
+    if (!mat) return;
+    if (Array.isArray(mat)) {
+      for (const m of mat) {
+        try { m && m.dispose && m.dispose(); } catch (e) {}
+      }
+    } else {
+      mat.dispose && mat.dispose();
+    }
+  } catch (e) {}
+}
+
+function disposeMeshGeometryAndMaterial(mesh) {
+  if (!mesh) return;
+  try { if (mesh.geometry) mesh.geometry.dispose(); } catch (e) {}
+  try { disposeMaterial(mesh.material); } catch (e) {}
+}
+
+function disposeObject3DRecursive(obj) {
+  if (!obj) return;
+  try {
+    obj.traverse((n) => {
+      if (n && n.isMesh) disposeMeshGeometryAndMaterial(n);
+    });
+  } catch (e) {}
+}
+
+function safeRemoveAndDispose(sceneRef, obj, { recursive = true } = {}) {
+  try { obj && sceneRef.remove(obj); } catch (e) {}
+  try {
+    if (!obj) return;
+    if (recursive) disposeObject3DRecursive(obj);
+    else disposeMeshGeometryAndMaterial(obj);
+  } catch (e) {}
+}
+
+function removeDomElement(el) {
+  try {
+    if (el && el.parentElement) el.parentElement.removeChild(el);
+  } catch (e) {}
+}
+
 async function regenerateMazeAndControllers() {
   // Clear existing controllers (remove their meshes)
   // Best-effort: remove any residual meshes from previous controllers so visuals
@@ -340,21 +388,8 @@ async function regenerateMazeAndControllers() {
   try {
     if (enemiesCtl?.enemies) {
       for (const e of enemiesCtl.enemies.slice()) {
-        try {
-          scene.remove(e.mesh);
-        } catch (err) {}
-        try {
-          if (e.ui?.wrapper && e.ui.wrapper.parentElement)
-            e.ui.wrapper.parentElement.removeChild(e.ui.wrapper);
-        } catch (err) {}
-        try {
-          if (e.mesh?.geometry) e.mesh.geometry.dispose();
-          if (e.mesh?.material) {
-            if (Array.isArray(e.mesh.material))
-              e.mesh.material.forEach((m) => m && m.dispose && m.dispose());
-            else e.mesh.material.dispose && e.mesh.material.dispose();
-          }
-        } catch (err) {}
+        safeRemoveAndDispose(scene, e?.mesh, { recursive: true });
+        removeDomElement(e?.ui?.wrapper);
       }
     }
   } catch (e) {
@@ -363,17 +398,7 @@ async function regenerateMazeAndControllers() {
   try {
     if (weaponsCtl?.weapons) {
       for (const w of weaponsCtl.weapons.slice()) {
-        try {
-          scene.remove(w.mesh);
-        } catch (err) {}
-        try {
-          if (w.mesh?.geometry) w.mesh.geometry.dispose();
-          if (w.mesh?.material) {
-            if (Array.isArray(w.mesh.material))
-              w.mesh.material.forEach((m) => m && m.dispose && m.dispose());
-            else w.mesh.material.dispose && w.mesh.material.dispose();
-          }
-        } catch (err) {}
+        safeRemoveAndDispose(scene, w?.mesh, { recursive: true });
       }
     }
   } catch (e) {
@@ -382,13 +407,7 @@ async function regenerateMazeAndControllers() {
   try {
     if (weaponsCtl?.projectiles) {
       for (const p of weaponsCtl.projectiles.slice()) {
-        try {
-          scene.remove(p.mesh);
-        } catch (err) {}
-        try {
-          if (p.mesh?.geometry) p.mesh.geometry.dispose();
-          if (p.mesh?.material) p.mesh.material.dispose && p.mesh.material.dispose();
-        } catch (err) {}
+        safeRemoveAndDispose(scene, p?.mesh, { recursive: true });
       }
     }
   } catch (e) {
@@ -397,21 +416,7 @@ async function regenerateMazeAndControllers() {
   try {
     if (powerupsCtl?.powerups) {
       for (const pu of powerupsCtl.powerups.slice()) {
-        try {
-          scene.remove(pu.mesh);
-        } catch (err) {}
-        try {
-          // powerup uses groups; dispose children geometries if present
-          pu.mesh.traverse((n) => {
-            if (n.isMesh) {
-              if (n.geometry) n.geometry.dispose();
-              if (n.material) {
-                if (Array.isArray(n.material)) n.material.forEach((m) => m && m.dispose && m.dispose());
-                else n.material.dispose && n.material.dispose();
-              }
-            }
-          });
-        } catch (err) {}
+        safeRemoveAndDispose(scene, pu?.mesh, { recursive: true });
       }
     }
   } catch (e) {
@@ -437,22 +442,7 @@ async function regenerateMazeAndControllers() {
 
   // Remove old walls group from scene
   if (wallGroup) {
-    try {
-      // remove and dispose meshes inside the old wallGroup
-      try {
-        wallGroup.traverse((c) => {
-          if (c.isMesh) {
-            if (c.geometry) c.geometry.dispose();
-            if (c.material) {
-              if (Array.isArray(c.material))
-                c.material.forEach((m) => m.dispose && m.dispose());
-              else c.material.dispose && c.material.dispose();
-            }
-          }
-        });
-      } catch (e) {}
-      scene.remove(wallGroup);
-    } catch (e) {}
+    try { safeRemoveAndDispose(scene, wallGroup, { recursive: true }); } catch (e) {}
     wallGroup = null;
     walls = null;
   }
@@ -461,15 +451,7 @@ async function regenerateMazeAndControllers() {
   try {
     if (keyMeshes && keyMeshes.length) {
       for (const km of keyMeshes) {
-        try {
-          scene.remove(km.mesh);
-          if (km.mesh.geometry) km.mesh.geometry.dispose();
-          if (km.mesh.material) {
-            if (Array.isArray(km.mesh.material))
-              km.mesh.material.forEach((m) => m.dispose && m.dispose());
-            else km.mesh.material.dispose && km.mesh.material.dispose();
-          }
-        } catch (e) {}
+        safeRemoveAndDispose(scene, km?.mesh, { recursive: true });
       }
     }
   } catch (e) {}
@@ -644,6 +626,8 @@ function onPlayerDamage(dmg) {
     } catch (e) {
       console.error("Failed to play level_lose sound:", e);
     }
+    // Stop background music on game over
+    try { audio.stopMusic?.({ fade: 0.6 }); } catch (e) {}
     playerModel.userData.triggerAction?.("death");
     // // Ensure the 3D avatar is visible and remains visible when the player dies,
     // // regardless of the current camera mode.
@@ -744,10 +728,20 @@ document.addEventListener("pointerlockchange", () => {
   if (locked) {
     closeMenuOverlay();
     hud.showStart?.(false);
+    // Start or resume background music when gameplay is active
+    if (!won && !lost) {
+      try {
+        audio.playMusic?.("bg_music", { volume: 0, loop: true, fade: 0.6 });
+      } catch (e) {
+        console.warn("Failed to start background music:", e);
+      }
+    }
     return;
   }
   if (!won && !lost) {
     openMenuOverlay({ allowResume: introFinished, focusResume: introFinished });
+    // Fade out music while in menu
+    try { audio.muteMusic?.(true, { fade: 0.3 }); } catch (e) {}
   }
 });
 
@@ -1012,6 +1006,8 @@ async function startGame() {
       } catch (e) {
         console.error("Failed to play level_win sound:", e);
       }
+      // Stop background music on level complete
+      try { audio.stopMusic?.({ fade: 0.6 }); } catch (e) {}
       won = true;
       hud.showWin();
 

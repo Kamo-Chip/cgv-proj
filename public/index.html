@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>First-Person Maze — Three.js (Vanilla)</title>
+    <title>Maz-Trix</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link
       rel="icon"
@@ -116,7 +116,8 @@
         border-radius: 999px;
         background: rgba(8, 18, 24, 0.75);
         border: 1px solid rgba(72, 255, 214, 0.35);
-        box-shadow: 0 0 28px rgba(72, 255, 214, calc(0.4 * var(--compass-intensity)));
+        box-shadow: 0 0 28px
+          rgba(72, 255, 214, calc(0.4 * var(--compass-intensity)));
         color: #cffff4;
         font-family: system-ui, sans-serif;
         font-size: 12px;
@@ -134,7 +135,11 @@
         height: 48px;
         border-radius: 50%;
         border: 1px solid rgba(72, 255, 214, 0.5);
-        background: radial-gradient(circle, rgba(72, 255, 214, 0.2) 0%, rgba(3, 11, 18, 0.85) 70%);
+        background: radial-gradient(
+          circle,
+          rgba(72, 255, 214, 0.2) 0%,
+          rgba(3, 11, 18, 0.85) 70%
+        );
         box-shadow: inset 0 0 12px rgba(72, 255, 214, 0.25);
       }
       .compass-arrow {
@@ -271,7 +276,11 @@
       .enemy-health-fill {
         left: 0;
         width: 100%;
-        background: linear-gradient(90deg, rgba(96, 255, 123, 0.95), rgba(34, 187, 78, 0.95));
+        background: linear-gradient(
+          90deg,
+          rgba(96, 255, 123, 0.95),
+          rgba(34, 187, 78, 0.95)
+        );
         box-shadow: 0 0 10px rgba(57, 205, 92, 0.65);
       }
       .enemy-health-lost {
@@ -298,9 +307,16 @@
         align-items: center;
         justify-content: center;
         perspective: 700px;
-        background:
-          radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.1) 0%, transparent 50%),
-          radial-gradient(circle at 80% 20%, rgba(255, 255, 255, 0.05) 0%, transparent 50%),
+        background: radial-gradient(
+            circle at 20% 50%,
+            rgba(255, 255, 255, 0.1) 0%,
+            transparent 50%
+          ),
+          radial-gradient(
+            circle at 80% 20%,
+            rgba(255, 255, 255, 0.05) 0%,
+            transparent 50%
+          ),
           linear-gradient(45deg, #000000 0%, #0a0a0a 100%);
         overflow: hidden;
         transition: opacity 0.6s ease, visibility 0.6s ease;
@@ -316,8 +332,7 @@
         height: min(82vh, 640px);
         background: rgba(0, 0, 0, 0.82);
         border: 1px solid rgba(255, 255, 255, 0.18);
-        box-shadow:
-          0 0 55px rgba(255, 255, 255, 0.14),
+        box-shadow: 0 0 55px rgba(255, 255, 255, 0.14),
           inset 0 0 100px rgba(255, 255, 255, 0.07);
         backdrop-filter: blur(6px);
         overflow: hidden;
@@ -329,7 +344,12 @@
         position: absolute;
         inset: 0;
         height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.8), transparent);
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.8),
+          transparent
+        );
         animation: menu-scanline 2s linear infinite;
       }
       .neural-card__grid {
@@ -383,8 +403,7 @@
         margin: 0 0 3.5rem;
         font-weight: 700;
         position: relative;
-        text-shadow:
-          0 0 14px rgba(255, 255, 255, 0.6),
+        text-shadow: 0 0 14px rgba(255, 255, 255, 0.6),
           0 0 28px rgba(255, 255, 255, 0.32);
       }
       .neural-title::after {
@@ -395,7 +414,12 @@
         transform: translateX(-50%);
         width: min(220px, 60%);
         height: 2px;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.9), transparent);
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.9),
+          transparent
+        );
       }
       .neural-menu__buttons {
         display: flex;
@@ -424,15 +448,19 @@
         content: "";
         position: absolute;
         inset: 0;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.18),
+          transparent
+        );
         transform: translateX(-100%);
         transition: transform 0.55s ease;
       }
       .neural-menu .menu-button:hover {
         border-color: rgba(255, 255, 255, 0.85);
         background: rgba(255, 255, 255, 0.14);
-        box-shadow:
-          0 0 24px rgba(255, 255, 255, 0.24),
+        box-shadow: 0 0 24px rgba(255, 255, 255, 0.24),
           inset 0 0 20px rgba(255, 255, 255, 0.12);
         transform: translateZ(18px);
       }
@@ -453,6 +481,93 @@
       }
       .pulse {
         animation: menu-pulse 2s infinite;
+      }
+
+      /* Instructions section inside neural menu */
+      .menu-instructions {
+        font-family: Arial, Helvetica, sans-serif;
+        text-transform: none;
+        margin-top: 1.6rem;
+        width: min(840px, 92%);
+        padding-top: 1rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+        text-align: left;
+        color: #e9f3ff;
+        pointer-events: auto;
+        max-height: clamp(160px, 30vh, 260px);
+        overflow-y: auto;
+      }
+      .menu-instructions h2 {
+        margin: 0 0 0.8rem;
+        font-size: 1rem;
+        letter-spacing: 0.2em;
+        opacity: 0.9;
+      }
+      .menu-instructions h3 {
+        margin: 0.6rem 0 0.4rem;
+        font-size: 0.9rem;
+        letter-spacing: 0.14em;
+        opacity: 0.9;
+      }
+      .menu-instructions__cols {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 1rem 2rem;
+      }
+      .menu-instructions__col ul {
+        list-style: disc inside;
+      }
+      @media (min-width: 760px) {
+        .menu-instructions__cols {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      .menu-instructions ul {
+        margin: 0 0 0.6rem;
+        padding: 0;
+      }
+      .menu-instructions li {
+        margin: 0.18rem 0;
+        font-size: 0.9rem;
+        letter-spacing: 0.06em;
+        opacity: 0.92;
+      }
+      .menu-instructions kbd {
+        background: #11161f;
+        border: 1px solid #324255;
+        border-bottom-width: 2px;
+        padding: 1px 6px;
+        border-radius: 6px;
+        font-size: 0.82em;
+        margin: 0 2px;
+        box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+      }
+
+      /* Themed scrollbar for the instructions pane */
+      .menu-instructions {
+        /* Firefox */
+        scrollbar-width: thin;
+        scrollbar-color: rgb(255, 255, 255) rgba(255, 255, 255, 0.08);
+      }
+      .menu-instructions::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+      .menu-instructions::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.06);
+        border-radius: 8px;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+      }
+      .menu-instructions::-webkit-scrollbar-thumb {
+        border-radius: 8px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.45), rgb(255, 255, 255));
+        border: 1px solid rgba(255, 255, 255, 0.25);
+      }
+      .menu-instructions::-webkit-scrollbar-thumb:hover {
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.65), rgb(255, 255, 255));
+      }
+      .menu-instructions::-webkit-scrollbar-corner {
+        background: transparent;
       }
 
       @keyframes menu-rotate {
@@ -491,7 +606,7 @@
       <div class="neural-card">
         <div class="neural-card__grid" id="menuGrid"></div>
         <div class="neural-menu">
-          <h1 class="neural-title">Neural Interface</h1>
+          <h1 class="neural-title">Maz-trix</h1>
           <div class="neural-menu__buttons">
             <button id="initiateBtn" class="menu-button" type="button">
               <span>Initiate System</span>
@@ -499,16 +614,63 @@
             <button id="terminateBtn" class="menu-button" type="button">
               <span>Terminate Session</span>
             </button>
-            <button id="resumeBtn" class="menu-button" type="button" style="display: none">
+            <button
+              id="resumeBtn"
+              class="menu-button"
+              type="button"
+              style="display: none"
+            >
               <span>Return to Game</span>
             </button>
             <button id="menuSettingsBtn" class="menu-button" type="button">
               <span>System Settings</span>
             </button>
           </div>
-          <div class="terminal-text pulse">
-            &gt; SYSTEM READY | CONNECTION ESTABLISHED | V.2.4.7 | PRESS SPACE TO SKIP INTRO
-          </div>
+          <!-- Instructions: shown below the other menu content -->
+          <section
+            class="menu-instructions"
+            style="margin-bottom: 4rem;"
+            aria-labelledby="menuInstructionsTitle"
+          >
+            <h2 id="menuInstructionsTitle">How to Play</h2>
+            <div class="menu-instructions__cols">
+              <div class="menu-instructions__col">
+                <h3>Controls</h3>
+                <ul>
+                  <li>
+                    Move: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
+                  </li>
+                  <li>Jump: <kbd>Space</kbd></li>
+                  <li>Interact / Pick up: <kbd>E</kbd></li>
+                  <li>Toggle View: <kbd>V</kbd></li>
+                  <li>Attack: Left Mouse Button</li>
+                </ul>
+              </div>
+              <div class="menu-instructions__col">
+                <h3>Objective</h3>
+                <ul>
+                  <li>Find the key (blue glowing card) scattered in the maze</li>
+                  <li>Unlock and reach the glowing exit door</li>
+                </ul>
+              </div>
+              <div class="menu-instructions__col">
+                <h3>Powerups</h3>
+                <ul>
+                  <li>⚡️ Speed: Temporary movement boost</li>
+                  <li>⬆️ Jump: Higher jumps</li>
+                  <li>⏱️ Freeze: Slows enemies briefly</li>
+                  <li>🧭 Compass: HUD arrow pointing to the exit</li>
+                </ul>
+              </div>
+              <div class="menu-instructions__col">
+                <h3>Weapons</h3>
+                <ul>
+                  <li>🔪 Knife: Infinite melee</li>
+                  <li>🔫 Pistol: Limited ammo</li>
+                </ul>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </div>
@@ -516,10 +678,6 @@
     <div id="app"></div>
 
     <div class="hud">
-      Click the screen to look around • Move: <kbd>W</kbd><kbd>A</kbd
-      ><kbd>S</kbd><kbd>D</kbd> or arrows • <b>Jump: <kbd>Space</kbd></b
-      ><br />
-      <b>Attack: Left Click</b> • Reset: <kbd>R</kbd> • Goal: glowing cube
       <div class="health-wrap">
         <div class="healthbar">
           <div id="healthfill" class="healthfill"></div>
@@ -574,10 +732,6 @@
           style="margin-top: 8px; font-size: 13px; opacity: 0.92"
         >
           Keys: <span id="keysCount">0</span> / <span id="keysTotal">0</span>
-        </div>
-        <div class="weapon-row" id="weaponHudRow" style="margin-top: 8px">
-          <div class="weapon-name" id="weaponName">Unarmed</div>
-          <div id="weaponAmmo" style="opacity: 0.85"></div>
         </div>
       </div>
     </div>
